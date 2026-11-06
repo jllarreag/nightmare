@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run backend tests on save",
+      "trigger": "PostFileSave",
+      "description": "Runs pytest in backend/ whenever a Python file there is saved",
+      "matcher": "backend/.*\\.py$",
+      "action": {
+        "type": "command",
+        "command": "cd backend && python -m pytest -q"
+      }
+    }
+  ]
+}

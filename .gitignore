@@ -1,0 +1,13 @@
+# NOTE: never ignore /.kiro (required by Kiroween rules)
+node_modules/
+dist/
+.angular/
+cdk.out/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.env
+.env.*
+*.log
+.DS_Store
