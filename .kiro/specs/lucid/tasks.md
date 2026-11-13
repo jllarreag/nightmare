@@ -1,14 +1,15 @@
 # Implementation plan: Nightmare Resolver
 
-- [ ] 1. Project scaffolding
-  - [ ] 1.1 Create `backend/` (pyproject, pytest, ruff), `frontend/` (Angular CLI, strict), `infra/` (CDK Python)
-  - [ ] 1.2 Add CI workflow: backend tests, frontend build, `cdk synth`
+- [x] 1. Project scaffolding
+  - [x] 1.1 Create `backend/` (pyproject, pytest, ruff), `frontend/` (Angular CLI, strict), `infra/` (CDK Python)
+  - [x] 1.2 Add CI workflow: backend tests, frontend build, `cdk synth`
   - _Requirements: 8.1_
 
-- [ ] 2. Shared backend library
-  - [ ] 2.1 Pydantic models for Step, Session, Classification, GalleryItem
-  - [ ] 2.2 Bedrock Converse wrapper for Nova 2 Lite (JSON output, one retry)
-  - [ ] 2.3 Prompt templates ES/EN (story, classifier, sanitizer, anonymizer)
+- [x] 2. Shared backend library
+  - [x] 2.1 Pydantic models for Step, Session, Classification, GalleryItem
+  - [x] 2.2 Bedrock Converse wrapper for Nova 2 Lite (JSON output, one retry)
+  - [x] 2.3 Prompt templates ES/EN (story, classifier, sanitizer, anonymizer)
+  - [x] 2.4 Smoke test the prompts against real Nova 2 Lite in eu-south-2 (classifier 4/4, full ES and EN stories)
   - _Requirements: 1.4, 3.1, 3.5_
 
 - [ ] 3. Moderation

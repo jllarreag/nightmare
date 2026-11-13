@@ -5,6 +5,7 @@ dist/
 cdk.out/
 __pycache__/
 *.pyc
+*.egg-info/
 .venv/
 .pytest_cache/
 .env
