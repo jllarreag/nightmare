@@ -13,9 +13,12 @@
   - _Requirements: 1.4, 3.1, 3.5_
 
 - [ ] 3. Moderation
-  - [ ] 3.1 Classifier (`ok | not_serious | forbidden_content | risk`) with tests on a sample corpus
+  - [x] 3.1 Classifier (`ok | not_serious | forbidden_content | risk`) with tests on a sample corpus (24/24 on real Nova, ES/EN)
   - [ ] 3.2 Guardrails integration for input/output text
-  - [ ] 3.3 Image prompt sanitizer + moderation before image generation
+    - [x] ApplyGuardrail wrapper, policy-to-category mapping, guardrail defined in CDK
+    - [ ] Deploy the guardrail and run the corpus eval with GUARDRAIL_ID set
+  - [x] 3.3 Image prompt sanitizer + moderation before image generation (model + denylist + guardrail)
+  - [x] 3.4 Localized stop messages with help resources for `risk`
   - _Requirements: 2.1-2.5, 4.1, 4.2_
 
 - [ ] 4. Story engine

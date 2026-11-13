@@ -32,6 +32,8 @@ def test_next_step_includes_history_and_choice():
     assert "step 2 (control)" in text
 
 
-def test_visual_prompt_mentions_fixed_style():
-    assert prompts.IMAGE_STYLE_SUFFIX in prompts.VISUAL_PROMPT_SYSTEM
+def test_visual_prompt_leaves_style_to_the_code():
+    # The model must not add style or negations; the code appends IMAGE_STYLE_SUFFIX.
+    assert prompts.IMAGE_STYLE_SUFFIX not in prompts.VISUAL_PROMPT_SYSTEM
+    assert "appended automatically" in prompts.VISUAL_PROMPT_SYSTEM
     assert "no gore" in prompts.IMAGE_STYLE_SUFFIX

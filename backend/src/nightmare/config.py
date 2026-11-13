@@ -13,6 +13,8 @@ class Settings:
     image_fallback_model_id: str
     sessions_table: str
     assets_bucket: str
+    guardrail_id: str = ""
+    guardrail_version: str = "DRAFT"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -26,4 +28,6 @@ class Settings:
             ),
             sessions_table=os.environ.get("SESSIONS_TABLE", ""),
             assets_bucket=os.environ.get("ASSETS_BUCKET", ""),
+            guardrail_id=os.environ.get("GUARDRAIL_ID", ""),
+            guardrail_version=os.environ.get("GUARDRAIL_VERSION", "DRAFT"),
         )
