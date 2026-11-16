@@ -53,7 +53,8 @@ def test_two_arm_python_lambdas_with_the_backend_configuration(t):
         assert props["Architectures"] == ["arm64"]
         assert props["Timeout"] == 29
         env = props["Environment"]["Variables"]
-        assert env["TEXT_MODEL_ID"] == "eu.amazon.nova-2-lite-v1:0"
+        # Nova is called through the tagged application inference profile.
+        assert env["TEXT_MODEL_ID"]["Fn::GetAtt"][1] == "InferenceProfileArn"
         assert env["BASE_REGION"] == "eu-south-2"
         assert {"GUARDRAIL_ID", "GUARDRAIL_VERSION", "SESSIONS_TABLE"} <= set(env)
 
@@ -69,9 +70,26 @@ def test_bedrock_access_is_limited_to_nova_in_eu_regions(t):
     for statement in invoke:
         resources = json.dumps(statement["Resource"])
         assert "inference-profile/eu.amazon.nova-2-lite-v1:0" in resources
+        assert "InferenceProfileArn" in resources  # the application inference profile
         assert "us-" not in resources
         for region in EU_PROFILE_REGIONS:
             assert f"arn:aws:bedrock:{region}::foundation-model/amazon.nova-2-lite-v1:0" in resources
+
+
+def test_application_inference_profile_copies_the_eu_profile(t):
+    t.has_resource_properties(
+        "AWS::Bedrock::ApplicationInferenceProfile",
+        {
+            "InferenceProfileName": "nightmare-nova-2-lite",
+            "Description": Match.string_like_regexp(r"^([0-9a-zA-Z:.][ _-]?)+$"),
+            "ModelSource": {
+                "CopyFrom": Match.string_like_regexp(
+                    r"^arn:aws:bedrock:eu-south-2:123456789012:inference-profile/eu\.amazon\.nova-2-lite-v1:0$"
+                )
+            },
+        },
+    )
+    t.has_output("TextInferenceProfileArn", {})
 
 
 def test_dynamodb_permissions_are_minimal_per_lambda(t):

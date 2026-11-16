@@ -1,6 +1,6 @@
 """Root stack: moderation guardrail and story API. Images, voice, gallery and frontend come later."""
 
-from aws_cdk import CfnOutput, Stack, Tags
+from aws_cdk import CfnOutput, Stack
 from constructs import Construct
 
 from stacks.guardrail import ModerationGuardrail
@@ -13,8 +13,6 @@ DEFAULT_ALLOWED_ORIGINS = ["http://localhost:4200"]
 class NightmareStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        Tags.of(self).add("project", "nightmare-resolver")
 
         guardrail = ModerationGuardrail(self, "Moderation")
         story = StoryApi(
@@ -30,4 +28,5 @@ class NightmareStack(Stack):
         CfnOutput(self, "GuardrailId", value=guardrail.guardrail_id)
         CfnOutput(self, "GuardrailVersion", value=guardrail.version)
         CfnOutput(self, "ApiUrl", value=story.api.api_endpoint)
+        CfnOutput(self, "TextInferenceProfileArn", value=story.text_profile_arn)
         CfnOutput(self, "SessionsTable", value=story.table.table_name)

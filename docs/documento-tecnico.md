@@ -22,7 +22,8 @@ Leyenda: ✅ hecho y probado · 🟡 programado, falta desplegar o probar en AWS
 | 9 | Frontend | ⬜ (solo el proyecto vacío) | No aplica | ⬜ |
 | 10 | Pulido, README y vídeo | ⬜ | ⬜ | ⬜ |
 
-**Hoy no hay nada desplegado en AWS.** El despliegue se hará en otra cuenta con SSO (sección 7).
+**Hoy no hay nada desplegado en AWS.** El despliegue será en la cuenta `alarmaiot` por SSO
+(sección 7). Todos los recursos llevan el tag `application = nightmare` (sección 7.5).
 
 ### Cómo se organiza el código
 
@@ -465,8 +466,9 @@ infra/
 ├── stacks/
 │   ├── nightmare_stack.py  Stack principal: une las piezas
 │   ├── guardrail.py        Definición del guardrail
-│   ├── story_api.py        Tabla, Lambdas, API y permisos de la historia
-│   └── bundling.py         Empaqueta el backend para Lambda
+│   ├── story_api.py        Tabla, Lambdas, API, perfil de Nova y permisos de la historia
+│   ├── bundling.py         Empaqueta el backend para Lambda
+│   └── tagging.py          Tag de coste común a toda la app
 └── tests/                  Comprueban la plantilla generada
 ```
 
@@ -476,6 +478,7 @@ Un **stack** es un conjunto de recursos de AWS que se crean, actualizan y borran
 | Recurso | Cantidad | Para qué |
 |---|---|---|
 | Guardrail y su versión | 1 + 1 | Moderación |
+| Perfil de inferencia de aplicación | 1 | Llamar a Nova con el tag de coste (sección 7.5) |
 | Tabla DynamoDB | 1 | Sesiones |
 | Funciones Lambda | 2 | `StartSession` y `NextStep` |
 | Roles y políticas IAM | 2 + 2 | Permisos de cada Lambda |
@@ -554,7 +557,7 @@ Decisiones importantes:
 
 | Permiso | StartSession | NextStep | Sobre qué recurso |
 |---|---|---|---|
-| `bedrock:InvokeModel` | Sí | Sí | Solo Nova 2 Lite, solo en las 6 regiones europeas del perfil `eu.` |
+| `bedrock:InvokeModel` | Sí | Sí | Solo Nova 2 Lite: el perfil de la app, el perfil `eu.` y el modelo en sus 6 regiones europeas |
 | `bedrock:ApplyGuardrail` | Sí | Sí | Solo nuestro guardrail |
 | `dynamodb:PutItem` | Sí | Sí | Solo la tabla de sesiones |
 | `dynamodb:GetItem`, `DeleteItem` | No | Sí | Solo la tabla de sesiones |
@@ -601,7 +604,8 @@ directamente, y Docker queda solo como alternativa automática.
 | `test_handlers.py` | Validación de peticiones y cada código de error HTTP | No |
 | `test_classifier_eval.py` | Los 24 textos del corpus contra Nova real | **Sí**, solo si se activa |
 | `infra/tests/test_guardrail.py` | Filtros, nombre del tema y versión | No |
-| `infra/tests/test_story_api.py` | Tabla, Lambdas, permisos mínimos, rutas, límites y CORS | No |
+| `infra/tests/test_story_api.py` | Tabla, Lambdas, perfil de Nova, permisos mínimos, rutas, límites y CORS | No |
+| `infra/tests/test_tagging.py` | Que todos los recursos con coste llevan `application = nightmare` | No |
 
 Los tests "con cliente falso" simulan las respuestas de AWS. Son instantáneos, gratis y comprueban
 la lógica. La evaluación real comprueba la calidad de la IA y cuesta unos céntimos.
@@ -611,7 +615,7 @@ la lógica. La evaluación real comprueba la calidad de la IA y cuesta unos cén
 - Backend: 85 tests pasan y 1 se omite (la evaluación real, que se activa a mano).
 - Evaluación real del clasificador: 24 de 24 aciertos.
 - Motor completo con Nova real: historia de 5 pasos en español, sin guardar el texto original.
-- Infra: 10 tests pasan y `cdk synth` genera la plantilla y el paquete de la Lambda.
+- Infra: 13 tests pasan y `cdk synth` genera la plantilla y el paquete de la Lambda sin avisos.
 - Lint y formato (`ruff`): sin avisos.
 
 ### 5.3 Cómo ejecutarlos
@@ -656,6 +660,8 @@ $env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
 | Infra por tareas | Cada tarea añade su parte de CDK, en vez de dejarla toda para la tarea 8 | Cada tarea termina con algo desplegable |
 | Empaquetado | pip con `--platform` en lugar de Docker | Docker no está instalado en este equipo |
 | Lambdas | ARM64, 512 MB, 29 s | Más barato que x86 y por debajo del corte de 30 s de la API |
+| Tags | `application = nightmare` en toda la app CDK | Separar el gasto de la app en Cost Explorer |
+| Llamadas a Nova | A través de un perfil de inferencia de aplicación | Es la única forma de etiquetar el gasto de Bedrock |
 
 ---
 
@@ -663,56 +669,124 @@ $env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
 
 ### 7.1 Situación actual
 
-Todavía no se ha desplegado nada. El despliegue se hará en **otra cuenta de AWS con acceso por
-SSO**, que aún no está configurada en este equipo.
+Todavía no se ha desplegado nada. El destino es la cuenta **`alarmaiot` (`670322849643`)** de tu
+organización, con acceso por SSO.
 
 El código **no depende de ninguna cuenta concreta**. CDK toma la cuenta del perfil con el que se
 despliega, y los identificadores (guardrail, tabla) se generan al desplegar. Cambiar de cuenta no
 requiere tocar código.
 
-### 7.2 Requisitos en la cuenta de destino
+### 7.2 Acceso por SSO (ya configurado)
 
-Antes de desplegar hay que comprobar en esa cuenta:
+| Dato | Valor |
+|---|---|
+| Página de acceso SSO | `https://d-9067f1fd59.awsapps.com/start` |
+| Región de IAM Identity Center | `us-east-1` |
+| Usuario | `jllarreag2022`, en el grupo `administrators` |
+| Permiso | `AdministratorAccess` en las tres cuentas, sesiones de 1 hora |
 
-1. **Acceso a Nova 2 Lite en `eu-south-2`.** En la cuenta actual ya funciona, en la nueva hay que
-   comprobarlo.
-2. **Acceso a Stable Image Core en `us-west-2`.** No hace falta todavía, sí para la tarea 5.
-3. **Permisos del rol SSO** suficientes para crear con CloudFormation los recursos de la sección
-   4.1: IAM, Lambda, API Gateway, DynamoDB, Bedrock y logs.
-4. **Bootstrap de CDK** en `eu-south-2`. Se hace una sola vez por cuenta y región. Crea un bucket y
-   unos roles que CDK usa para desplegar.
+En `~/.aws/config` se añadieron (con copia de seguridad previa):
 
-### 7.3 Pasos previstos
+- La sesión SSO `jllarreag-sso`.
+- El perfil **`nightmare-alarmaiot`** (cuenta `670322849643`, región `eu-south-2`).
+- El perfil `nightmare-jllarreag` (cuenta `847576491896`). No se usa y se puede borrar.
+
+Cuando caduque la sesión (1 hora), basta con `aws sso login --sso-session jllarreag-sso`.
+
+### 7.3 Problema encontrado: `eu-south-2` está desactivada en `alarmaiot`
+
+España (`eu-south-2`) es una región que hay que **activar en cada cuenta**. En `alarmaiot` está
+desactivada, y por eso cualquier llamada en esa región responde "token inválido" aunque el login
+SSO haya funcionado.
+
+Regiones europeas activas hoy en `alarmaiot`: `eu-central-1`, `eu-north-1`, `eu-west-1`,
+`eu-west-2` y `eu-west-3`.
+
+Hay dos opciones, **pendientes de decidir**:
+
+| Opción | Qué implica |
+|---|---|
+| Activar `eu-south-2` en `alarmaiot` | Cambio en la cuenta. AWS tarda de minutos a horas en activarla. Se mantiene España como región base |
+| Desplegar en `eu-west-3` (París) | Ya está activa. El perfil `eu.` de Nova funciona igual desde París y los datos siguen en Europa. Basta con `CDK_DEFAULT_REGION=eu-west-3` |
+
+Comandos para activar la región, si se elige esa opción:
 
 ```powershell
-# 1. Configurar el perfil SSO (una vez). Pide la URL de inicio de SSO, la cuenta y el rol.
-aws configure sso --profile <perfil-sso>
-
-# 2. Iniciar sesión (cada vez que caduque la sesión SSO)
-aws sso login --profile <perfil-sso>
-
-# 3. Comprobar la cuenta y el acceso a Nova en eu-south-2
-aws sts get-caller-identity --profile <perfil-sso>
-aws bedrock list-inference-profiles --region eu-south-2 --profile <perfil-sso> `
-  --query "inferenceProfileSummaries[?inferenceProfileId=='eu.amazon.nova-2-lite-v1:0'].status"
-
-# 4. Bootstrap (una vez) y despliegue
-cd infra
-.\.venv\Scripts\Activate.ps1
-npx aws-cdk@2.1148.1 bootstrap --profile <perfil-sso> aws://<cuenta>/eu-south-2
-npx aws-cdk@2.1148.1 deploy --profile <perfil-sso>
+aws account enable-region --region-name eu-south-2 --profile nightmare-alarmaiot --region us-east-1
+aws account get-region-opt-status --region-name eu-south-2 --profile nightmare-alarmaiot --region us-east-1
 ```
 
-Al terminar, CDK muestra la URL de la API (`ApiUrl`) y los identificadores del guardrail.
+### 7.4 Pasos de despliegue
 
-Después del despliegue quedan dos comprobaciones:
+```powershell
+# 1. Iniciar sesión SSO (cada vez que caduque)
+aws sso login --sso-session jllarreag-sso
+
+# 2. Comprobar la cuenta y el acceso a Nova en la región elegida
+aws sts get-caller-identity --profile nightmare-alarmaiot
+aws bedrock list-inference-profiles --region eu-south-2 --profile nightmare-alarmaiot `
+  --query "inferenceProfileSummaries[?inferenceProfileId=='eu.amazon.nova-2-lite-v1:0'].status"
+
+# 3. Bootstrap (una vez por cuenta y región), con el tag de la app
+cd infra
+.\.venv\Scripts\Activate.ps1
+npx aws-cdk@2.1148.1 bootstrap aws://670322849643/eu-south-2 --profile nightmare-alarmaiot `
+  --tags application=nightmare
+
+# 4. Despliegue
+npx aws-cdk@2.1148.1 deploy --profile nightmare-alarmaiot
+```
+
+Al terminar, CDK muestra la URL de la API (`ApiUrl`), el perfil de inferencia y los identificadores
+del guardrail.
+
+Después del despliegue quedan tres comprobaciones:
 
 - Pasar la evaluación del clasificador con el guardrail activo (cierra la tarea 3.2).
 - Llamar a la API real con una historia completa (cierra la tarea 4.5).
+- Confirmar que Nova responde a través del perfil de inferencia de aplicación, también en el cierre
+  con razonamiento. Está programado, pero solo se puede probar desplegado.
 
-Para borrarlo todo: `npx aws-cdk@2.1148.1 destroy --profile <perfil-sso>`.
+Para borrarlo todo: `npx aws-cdk@2.1148.1 destroy --profile nightmare-alarmaiot`.
 
-### 7.4 Coste orientativo
+### 7.5 Tags de coste
+
+Todos los recursos de la app llevan el tag **`application = nightmare`**. Para que el gasto aparezca
+separado en Cost Explorer hacen falta tres cosas:
+
+**1. Que los recursos tengan el tag.** Se aplica en `infra/app.py` a toda la aplicación CDK, a
+través de `stacks/tagging.py`. Así lo reciben el stack de CloudFormation y todos los recursos que
+admiten tags, también los que se añadan en el futuro. Un test (`infra/tests/test_tagging.py`) falla
+si algún recurso con coste se queda sin él.
+
+| Recurso | ¿Tiene coste? | ¿Lleva el tag? |
+|---|---|---|
+| Lambdas, tabla DynamoDB, API HTTP y su etapa, logs, guardrail | Sí | Sí |
+| Roles IAM | No | Sí |
+| Rutas, integraciones, permisos y políticas IAM, versión del guardrail | No | No los admiten |
+| Recursos del bootstrap de CDK (bucket y roles) | Mínimo | Sí, con `--tags` en el paso 3 de 7.4 |
+
+**2. Que el gasto de Nova sea etiquetable.** Las llamadas a un modelo de Bedrock no admiten tags.
+Por eso el stack crea un **perfil de inferencia de aplicación** (`nightmare-nova-2-lite`), una copia
+etiquetada del perfil `eu.amazon.nova-2-lite-v1:0`. Las Lambdas llaman a Nova a través de él y AWS
+anota su tag en cada cobro. No tiene coste extra. Fuente:
+[documentación de AWS](https://docs.aws.amazon.com/bedrock/latest/userguide/cost-mgmt-application-inference-profiles.html).
+
+**3. Activar el tag en Billing.** Probablemente sea el paso que suele faltar. Un tag no aparece en
+Cost Explorer hasta que se activa como *cost allocation tag* en la **cuenta de gestión** de la
+organización (`170057817102`). Además, el tag solo se puede activar cuando ya existe algún recurso
+con él, y AWS puede tardar hasta 24 horas en mostrarlo.
+
+```powershell
+# Después del despliegue, desde la cuenta de gestión (perfil jllarreag2022cli)
+aws ce list-cost-allocation-tags --tag-keys application --profile jllarreag2022cli --region us-east-1
+aws ce update-cost-allocation-tags-status --profile jllarreag2022cli --region us-east-1 `
+  --cost-allocation-tags-status TagKey=application,Status=Active
+```
+
+Una vez activo, solo se separa el gasto **desde ese momento**. El gasto anterior no se reasigna.
+
+### 7.6 Coste orientativo
 
 Todo se paga por uso, así que sin tráfico el coste es casi nulo. Cada historia consume unas 6-8
 llamadas a Nova 2 Lite (clasificación, 5 pasos y alguna comprobación) y las del guardrail. No he
@@ -722,9 +796,44 @@ calculado cifras exactas.
 
 ## 8. Qué falta
 
+### 8.1 Pendiente para retomar (orden sugerido)
+
+**Decisiones abiertas**
+
+- [ ] **Región de despliegue en `alarmaiot`:** activar `eu-south-2` o desplegar en `eu-west-3`
+  (París). Ver 7.3.
+
+**Despliegue (tareas 3.2 y 4.5)**
+
+- [ ] `aws sso login --sso-session jllarreag-sso`. La sesión dura 1 hora.
+- [ ] Si se elige España: activar `eu-south-2` y esperar a que su estado sea `ENABLED`.
+- [ ] Comprobar en `alarmaiot` el acceso a Nova 2 Lite con el perfil `eu.` en la región elegida.
+- [ ] `cdk bootstrap` con `--tags application=nightmare` y después `cdk deploy` (7.4).
+- [ ] Probar que Nova responde a través del perfil de inferencia de aplicación, también en el cierre
+  con razonamiento. No se ha podido probar sin desplegar.
+- [ ] Pasar la evaluación del clasificador con el guardrail activo (`GUARDRAIL_ID` de la salida del
+  despliegue). Cierra la 3.2.
+- [ ] Recorrer una historia completa llamando a la API real. Cierra la 4.5.
+
+**Costes**
+
+- [ ] Activar el tag `application` como *cost allocation tag* en la cuenta de gestión, cuando ya
+  aparezca en Billing (hasta 24 h después del despliegue). Ver 7.5.
+
+**Revisiones menores**
+
+- [ ] Comprobar en la pestaña Actions de GitHub que la CI pasa. No se ha revisado nunca en GitHub.
+- [ ] Revisar las 16 vulnerabilidades moderadas que avisa `npm install` en `frontend/`. No se ha
+  ejecutado `npm audit fix --force` porque introduce cambios incompatibles.
+- [ ] Borrar el perfil `nightmare-jllarreag` de `~/.aws/config` si no se va a usar.
+- [ ] Para la tarea 5: confirmar el acceso a Stable Image Core en `us-west-2` en la cuenta
+  `alarmaiot`.
+- [ ] Opcional: actualizar Node a 22.22.3 o superior para poder usar Angular 22.
+
+### 8.2 Tareas del spec sin empezar
+
 | Tarea | Contenido |
 |---|---|
-| 3.2 y 4.5 | Desplegar en la cuenta SSO, probar el guardrail y la API real (sección 7) |
 | 5 | Generar las dos imágenes con Stability y guardarlas en S3 |
 | 6 | Voz con Polly |
 | 7 | Galería pública anonimizada con enlace de borrado |

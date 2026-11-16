@@ -7,6 +7,7 @@
 from aws_cdk import Duration, RemovalPolicy, Stack
 from aws_cdk import aws_apigatewayv2 as apigw
 from aws_cdk import aws_apigatewayv2_integrations as integrations
+from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -58,11 +59,30 @@ class StoryApi(Construct):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
+        # --- Tagged access to Nova ---------------------------------------------------------
+        # On-demand model calls cannot be tagged. Calling Nova through this application
+        # inference profile attaches its tags to the Bedrock billing records.
+        system_profile_arn = (
+            f"arn:aws:bedrock:{stack.region}:{stack.account}:"
+            f"inference-profile/{TEXT_INFERENCE_PROFILE}"
+        )
+        text_profile = bedrock.CfnApplicationInferenceProfile(
+            self,
+            "TextInferenceProfile",
+            inference_profile_name="nightmare-nova-2-lite",
+            # Pattern ^([0-9a-zA-Z:.][ _-]?)+$ : no commas or parentheses.
+            description="Nova 2 Lite EU for Nightmare Resolver cost allocation",
+            model_source=bedrock.CfnApplicationInferenceProfile.InferenceProfileModelSourceProperty(
+                copy_from=system_profile_arn
+            ),
+        )
+        self.text_profile_arn = text_profile.attr_inference_profile_arn
+
         # --- Lambdas ----------------------------------------------------------------------
         code = backend_code()
         environment = {
             "BASE_REGION": stack.region,
-            "TEXT_MODEL_ID": TEXT_INFERENCE_PROFILE,
+            "TEXT_MODEL_ID": self.text_profile_arn,
             "GUARDRAIL_ID": guardrail_id,
             "GUARDRAIL_VERSION": guardrail_version,
             "SESSIONS_TABLE": self.table.table_name,
@@ -94,11 +114,12 @@ class StoryApi(Construct):
         self.next_step = function("NextStep", "nightmare.handlers.next_step.handler")
 
         # --- Least-privilege permissions --------------------------------------------------
+        # Bedrock checks the whole chain: application profile -> EU profile -> model per region.
         invoke_nova = iam.PolicyStatement(
             actions=["bedrock:InvokeModel"],
             resources=[
-                f"arn:aws:bedrock:{stack.region}:{stack.account}:"
-                f"inference-profile/{TEXT_INFERENCE_PROFILE}",
+                self.text_profile_arn,
+                system_profile_arn,
                 *(
                     f"arn:aws:bedrock:{region}::foundation-model/{TEXT_FOUNDATION_MODEL}"
                     for region in EU_PROFILE_REGIONS
