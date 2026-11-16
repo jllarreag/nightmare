@@ -1,21 +1,12 @@
 import re
 from pathlib import Path
 
-import aws_cdk as cdk
-from aws_cdk.assertions import Match, Template
+from aws_cdk.assertions import Match
 
+from helpers import template
 from stacks.guardrail import SELF_HARM_TOPIC
-from stacks.nightmare_stack import NightmareStack
 
-BACKEND_MODERATION = (
-    Path(__file__).parents[2] / "backend" / "src" / "nightmare" / "moderation.py"
-)
-
-
-def template() -> Template:
-    app = cdk.App()
-    stack = NightmareStack(app, "Test", env=cdk.Environment(region="eu-south-2"))
-    return Template.from_stack(stack)
+BACKEND_MODERATION = Path(__file__).parents[2] / "backend" / "src" / "nightmare" / "moderation.py"
 
 
 def test_self_harm_topic_name_matches_the_backend():
@@ -33,8 +24,7 @@ def test_self_harm_topic_name_matches_the_backend():
 
 
 def test_filters_are_calibrated_for_nightmares():
-    filters = template().find_resources("AWS::Bedrock::Guardrail")
-    (guardrail,) = filters.values()
+    (guardrail,) = template().find_resources("AWS::Bedrock::Guardrail").values()
     by_type = {
         f["Type"]: f for f in guardrail["Properties"]["ContentPolicyConfig"]["FiltersConfig"]
     }

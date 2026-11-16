@@ -3,8 +3,36 @@
 Este documento explica qué está construido hasta ahora, cómo funciona y por qué se tomó cada
 decisión. Se centra en el backend y la infraestructura.
 
-Estado a fecha de este documento: tareas 1, 2 y 3 del spec (`.kiro/specs/lucid/tasks.md`).
-Todavía **no hay nada desplegado en AWS** y **no existe aún la API** que usará el frontend.
+El detalle de tareas está en `.kiro/specs/lucid/tasks.md`.
+
+### Estado de implementación
+
+Leyenda: ✅ hecho y probado · 🟡 programado, falta desplegar o probar en AWS · ⬜ sin empezar
+
+| # | Funcionalidad | Backend | Infra (CDK) | Probado con AWS real |
+|---|---|---|---|---|
+| 1 | Estructura del proyecto y CI | ✅ | ✅ | No aplica |
+| 2 | Modelos de datos, cliente de Nova y prompts | ✅ | No aplica | ✅ Nova 2 Lite en `eu-south-2` |
+| 3 | Moderación (clasificador, guardrail, prompt de imagen) | ✅ | 🟡 guardrail definido | ✅ clasificador 24/24 · 🟡 guardrail sin desplegar |
+| 4 | Motor de la historia y API | ✅ | 🟡 tabla, Lambdas y API definidas | ✅ motor con Nova · 🟡 API sin desplegar |
+| 5 | Imágenes (Stability) | ⬜ | ⬜ | ⬜ |
+| 6 | Voz (Polly) | ⬜ | ⬜ | ⬜ |
+| 7 | Galería pública | ⬜ | ⬜ | ⬜ |
+| 8 | Alojamiento del frontend y WAF | No aplica | ⬜ | ⬜ |
+| 9 | Frontend | ⬜ (solo el proyecto vacío) | No aplica | ⬜ |
+| 10 | Pulido, README y vídeo | ⬜ | ⬜ | ⬜ |
+
+**Hoy no hay nada desplegado en AWS.** El despliegue se hará en otra cuenta con SSO (sección 7).
+
+### Cómo se organiza el código
+
+Cada funcionalidad se hace en dos mitades:
+
+1. **Backend:** la lógica en Python (qué pedir a Nova, cómo validar, qué guardar).
+2. **Infra:** los recursos de AWS que ejecutan esa lógica (tabla, Lambdas, API, permisos).
+
+En las tareas 2 y 3 solo había lógica, porque eran piezas internas (validación, moderación) que
+nadie llama directamente. Desde la tarea 4, cada tarea añade las dos mitades a la vez.
 
 ---
 
@@ -15,8 +43,8 @@ La aplicación tiene tres partes, cada una en su carpeta:
 | Carpeta | Qué es | Lenguaje | Estado |
 |---|---|---|---|
 | `frontend/` | La web que ve el usuario | Angular (TypeScript) | Proyecto vacío generado |
-| `backend/` | La lógica: hablar con la IA, moderar, validar | Python 3.12 | Librería base hecha y probada |
-| `infra/` | La descripción de los recursos de AWS | Python (AWS CDK) | Solo el guardrail definido |
+| `backend/` | La lógica: hablar con la IA, moderar, la historia y las Lambdas | Python 3.12 | Historia completa hecha y probada |
+| `infra/` | La descripción de los recursos de AWS | Python (AWS CDK) | Guardrail, tabla, Lambdas y API definidos, sin desplegar |
 
 Cuando esté terminada, el flujo será este:
 
@@ -32,8 +60,8 @@ flowchart LR
   L --> S3[(S3 imágenes y audio)]
 ```
 
-Lo que ya existe es la parte de **Lambdas Python** como librería reutilizable (sin las funciones
-Lambda en sí) y el **Guardrail** como definición en CDK (sin desplegar).
+Ya existen, sin desplegar: **API Gateway**, las dos **Lambdas** de la historia, la tabla
+**DynamoDB** de sesiones y el **Guardrail**. Faltan las imágenes, la voz, la galería y el frontend.
 
 ---
 
@@ -80,25 +108,41 @@ automáticamente. La usamos para comprobar que la IA devuelve exactamente lo que
 ```
 backend/
 ├── pyproject.toml              Dependencias y configuración de tests y lint
+├── requirements-lambda.txt     Lo que se empaqueta en la Lambda (solo pydantic)
 ├── src/nightmare/
 │   ├── config.py               Lee la configuración de variables de entorno
 │   ├── models.py               Forma de los datos y reglas de la historia
 │   ├── bedrock.py              Cliente para hablar con Nova
 │   ├── prompts.py              Instrucciones que se envían a Nova
 │   ├── moderation.py           Capas de seguridad
-│   └── messages.py             Textos que ve el usuario si se para la sesión
-└── tests/
-    ├── factories.py            Datos de ejemplo para los tests
-    ├── test_config.py
-    ├── test_models.py
-    ├── test_bedrock.py
-    ├── test_prompts.py
-    ├── test_moderation.py
-    ├── test_classifier_eval.py Evaluación real contra Nova (opcional)
-    └── corpus/classifier.json  24 textos de prueba etiquetados
+│   ├── messages.py             Textos que ve el usuario si se para la sesión
+│   ├── story.py                Motor de la historia: empezar y avanzar
+│   ├── store.py                Guardar y leer sesiones en DynamoDB
+│   ├── api.py                  Traducir peticiones HTTP y errores
+│   ├── wiring.py               Crea los clientes reales de AWS
+│   └── handlers/
+│       ├── start_session.py    Lambda: POST /sessions
+│       └── next_step.py        Lambda: POST /sessions/{id}/steps
+└── tests/                      Un archivo de test por módulo, más el corpus
 ```
 
-Todavía no hay `handlers/` (las funciones Lambda). Llegan en la tarea 4 y usarán estos módulos.
+Los módulos están en capas. Cada capa solo usa las de debajo:
+
+```mermaid
+flowchart TD
+  H[handlers/<br/>entrada de cada Lambda] --> A[api.py<br/>HTTP y errores]
+  H --> W[wiring.py<br/>clientes reales de AWS]
+  W --> S[story.py<br/>motor de la historia]
+  S --> M[moderation.py]
+  S --> B[bedrock.py]
+  S --> ST[store.py]
+  S --> P[prompts.py]
+  M --> B
+  B --> MO[models.py]
+```
+
+**Por qué así:** `story.py` no sabe nada de HTTP ni de AWS, recibe sus piezas desde fuera. Por eso se
+puede probar con piezas falsas, gratis y en milisegundos. Solo `wiring.py` crea los clientes reales.
 
 ### 3.2 `config.py`: configuración
 
@@ -164,7 +208,8 @@ Otras clases del archivo:
 - `StoryOpening`: la primera respuesta de la IA. Contiene el paso 1, una descripción genérica del
   personaje (para que las dos imágenes se parezcan) y un resumen anonimizado de la pesadilla.
 - `VisualPrompt`: un prompt de imagen saneado y si es seguro o no.
-- `Session` y `GalleryItem`: lo que guardaremos en base de datos (tareas 4 y 7).
+- `Session`: la sesión que se guarda en DynamoDB (ver 3.9).
+- `GalleryItem`: una historia publicada en la galería (tarea 7, todavía sin usar).
 
 ### 3.4 `bedrock.py`: hablar con Nova
 
@@ -298,6 +343,112 @@ ayuda:
 - 112, emergencias.
 - findahelpline.com para otros países.
 
+### 3.8 `story.py`: el motor de la historia
+
+La clase `StoryService` tiene dos métodos, uno por cada acción del usuario.
+
+**`start(nightmare, language)`: el usuario envía su pesadilla.**
+
+```mermaid
+flowchart TD
+  A[Texto de la pesadilla] --> B{¿Entre 20 y 2000<br/>caracteres?}
+  B -->|No| E1[Error 400. No se llama a ninguna IA]
+  B -->|Sí| C{Moderar entrada}
+  C -->|No es ok| E2[Mensaje de parada.<br/>No se guarda nada]
+  C -->|ok| D[Nova genera el paso 1,<br/>el personaje y el resumen]
+  D --> F{Moderar lo generado}
+  F -->|No pasa| E2
+  F -->|Pasa| G[Guardar sesión<br/>sin el texto original]
+  G --> H[Devolver el paso 1]
+```
+
+**`next(session_id, choice_id)`: el usuario elige una opción.**
+
+1. Lee la sesión. Si no existe o ha caducado, devuelve un error 404.
+2. Comprueba que la opción elegida existe en el paso actual. Las opciones son botones, no texto
+   libre, así que validar el identificador basta como moderación de la elección.
+3. Pide a Nova el siguiente paso. En el cierre (paso 5) activa el razonamiento, porque ahí va el
+   aprendizaje.
+4. Comprueba que Nova devolvió el número de paso correcto y modera el texto generado. Si no pasa
+   la moderación, borra la sesión y termina.
+5. Guarda la sesión avanzada y devuelve el paso.
+
+Detalle: el prompt de imagen no se envía al navegador. Es interno y solo lo usará la generación de
+imágenes (tarea 5). El navegador recibe `has_image: true` en los pasos 1 y 4.
+
+### 3.9 `store.py`: guardar sesiones
+
+Cada sesión es una fila de DynamoDB:
+
+| Campo | Ejemplo | Para qué |
+|---|---|---|
+| `pk` | `SESSION#3f2a...` | Identificador único |
+| `step_index` | `3` | En qué paso va |
+| `ttl` | `1800086400` | Fecha de caducidad (24 h). DynamoDB borra la fila después |
+| `data` | `{...}` | La sesión completa en JSON: resumen anonimizado, personaje y pasos |
+
+Dos protecciones:
+
+- **Caducidad comprobada al leer.** DynamoDB puede tardar días en borrar las filas caducadas, así
+  que el código también ignora las que han pasado de fecha.
+- **Bloqueo optimista.** Al guardar se comprueba que la sesión sigue en el paso esperado. Si el
+  usuario hace doble clic, la segunda petición falla con 409 en vez de generar dos pasos.
+
+### 3.10 `api.py` y `handlers/`: la entrada desde Internet
+
+Cada Lambda es un archivo pequeño que lee la petición, valida los campos y llama a `StoryService`.
+
+`api.py` convierte cualquier error en una respuesta HTTP con un **código estable**. El frontend
+traduce ese código a un mensaje en el idioma del usuario.
+
+| Situación | HTTP | Código |
+|---|---|---|
+| Datos mal formados | 400 | `body`, `language`, `nightmare`, `nightmare_length`, `choice` |
+| Sesión inexistente o caducada | 404 | `session_not_found` |
+| Doble clic o historia ya terminada | 409 | `session_conflict` |
+| Nova devolvió algo inválido dos veces | 502 | `generation_failed` |
+| AWS limita las peticiones | 429 | `busy` |
+| Otro error de AWS | 503 | `unavailable` |
+| Error inesperado | 500 | `internal` |
+
+Nunca se devuelven detalles internos ni se registran textos del usuario en los logs.
+
+### 3.11 El contrato de la API
+
+Esto es lo que usará el frontend:
+
+```http
+POST /sessions
+{"nightmare": "Sueño que una sombra me persigue...", "language": "es"}
+```
+
+```json
+{
+  "status": "ok",
+  "session_id": "3f2a9c...",
+  "step": {"step": 1, "title": "...", "narration": "...", "choices": [...],
+           "technique": "recreate", "has_image": true, "learning": null, "coping_tip": null}
+}
+```
+
+```http
+POST /sessions/3f2a9c.../steps
+{"choice_id": "b"}
+```
+
+```json
+{"status": "ok", "session_id": "3f2a9c...", "step": {...}, "finished": false}
+```
+
+Si la moderación para la sesión, la respuesta es HTTP 200 con `status: "stopped"`:
+
+```json
+{"status": "stopped", "category": "risk", "message": "Gracias por contarlo...",
+ "resources": [{"label": "Línea 024...", "contact": "024"}, ...]}
+```
+
+Se usa 200 porque no es un error técnico: la app ha funcionado y ha decidido parar.
+
 ---
 
 ## 4. Infraestructura (`infra/`)
@@ -312,14 +463,24 @@ infra/
 ├── requirements-dev.txt    Añade pytest
 ├── pytest.ini
 ├── stacks/
-│   ├── nightmare_stack.py  Stack principal
-│   └── guardrail.py        Definición del guardrail
-└── tests/test_guardrail.py
+│   ├── nightmare_stack.py  Stack principal: une las piezas
+│   ├── guardrail.py        Definición del guardrail
+│   ├── story_api.py        Tabla, Lambdas, API y permisos de la historia
+│   └── bundling.py         Empaqueta el backend para Lambda
+└── tests/                  Comprueban la plantilla generada
 ```
 
-Un **stack** es un conjunto de recursos de AWS que se crean, actualizan y borran juntos. Ahora hay
-uno, `NightmareResolver`, y solo contiene el guardrail. En la tarea 8 se añadirán la base de datos,
-el almacenamiento, las Lambdas, la API y el alojamiento del frontend.
+Un **stack** es un conjunto de recursos de AWS que se crean, actualizan y borran juntos. Hay uno,
+`NightmareResolver`, que hoy genera estos recursos:
+
+| Recurso | Cantidad | Para qué |
+|---|---|---|
+| Guardrail y su versión | 1 + 1 | Moderación |
+| Tabla DynamoDB | 1 | Sesiones |
+| Funciones Lambda | 2 | `StartSession` y `NextStep` |
+| Roles y políticas IAM | 2 + 2 | Permisos de cada Lambda |
+| Grupos de logs | 2 | Logs de cada Lambda, guardados 14 días |
+| API HTTP, etapa, rutas e integraciones | 1 + 1 + 2 + 2 | La entrada desde Internet |
 
 El ciclo de trabajo con CDK es este:
 
@@ -357,10 +518,65 @@ con ejemplos en español e inglés. El backend lo interpreta como `risk`.
 **Importante:** el nombre `SelfHarm` debe coincidir en `infra/stacks/guardrail.py` y en
 `backend/src/nightmare/moderation.py`. Hay un test que lo comprueba.
 
-Al desplegar, el stack mostrará `GuardrailId` y `GuardrailVersion`. Esos valores se pondrán en las
-variables `GUARDRAIL_ID` y `GUARDRAIL_VERSION` del backend.
+CDK pasa automáticamente el identificador y la versión del guardrail a las Lambdas como variables
+`GUARDRAIL_ID` y `GUARDRAIL_VERSION`. No hay que copiarlos a mano.
 
-### 4.3 Regiones: por qué dos
+### 4.3 La API de la historia (`stacks/story_api.py`)
+
+```mermaid
+flowchart LR
+  N[Navegador] -->|POST /sessions| API[API HTTP<br/>5 peticiones/s, picos de 10]
+  N -->|POST /sessions/id/steps| API
+  API --> L1[Lambda StartSession]
+  API --> L2[Lambda NextStep]
+  L1 -->|PutItem| T[(Tabla Sessions<br/>caducidad 24 h)]
+  L2 -->|GetItem, PutItem, DeleteItem| T
+  L1 & L2 -->|InvokeModel| NOVA[Nova 2 Lite<br/>solo regiones UE]
+  L1 & L2 -->|ApplyGuardrail| GR[Guardrail]
+```
+
+Decisiones importantes:
+
+- **Lambdas ARM64 (Graviton)** con Python 3.12 y 512 MB. ARM es más barato que x86 para el mismo
+  trabajo.
+- **Tiempo máximo de 29 s.** La API HTTP corta a los 30 s. Además, las llamadas a Bedrock tienen un
+  límite de 20 s (`wiring.py`), para devolver un error claro antes de que la API corte.
+- **Límite global de peticiones:** 5 por segundo con picos de 10. Controla el coste si alguien
+  abusa. El límite por IP llegará con WAF en la tarea 8.
+- **CORS.** Solo se aceptan peticiones del navegador desde los orígenes permitidos. Por ahora,
+  `http://localhost:4200` (Angular en local). El dominio real se añade en la tarea 8, sin tocar
+  código, con `cdk deploy -c allowedOrigins='["https://..."]'`.
+- **Logs en JSON durante 14 días.** Después se borran. Nunca contienen texto del usuario.
+- **La tabla se borra con `cdk destroy`.** Solo guarda sesiones temporales, así que no hay nada que
+  conservar.
+
+**Permisos mínimos.** Cada Lambda puede hacer solo lo que necesita:
+
+| Permiso | StartSession | NextStep | Sobre qué recurso |
+|---|---|---|---|
+| `bedrock:InvokeModel` | Sí | Sí | Solo Nova 2 Lite, solo en las 6 regiones europeas del perfil `eu.` |
+| `bedrock:ApplyGuardrail` | Sí | Sí | Solo nuestro guardrail |
+| `dynamodb:PutItem` | Sí | Sí | Solo la tabla de sesiones |
+| `dynamodb:GetItem`, `DeleteItem` | No | Sí | Solo la tabla de sesiones |
+
+Como el permiso de Nova solo incluye regiones europeas, AWS rechazaría cualquier intento de
+procesar el texto fuera de Europa, aunque hubiera un error en el código.
+
+### 4.4 Cómo se empaqueta el backend (`stacks/bundling.py`)
+
+Una Lambda necesita un zip con el código y sus dependencias. CDK lo crea al hacer `synth`:
+
+1. Descarga pydantic **compilado para Linux ARM64**, aunque estés en Windows (opción
+   `--platform manylinux2014_aarch64` de pip).
+2. Copia la carpeta `backend/src/nightmare`.
+
+No incluye boto3, que ya viene en el entorno de Lambda, ni los tests ni el entorno virtual. El
+paquete ocupa unos 9 MB.
+
+Lo normal en CDK es empaquetar con Docker, pero no lo tienes instalado. Por eso se usa pip
+directamente, y Docker queda solo como alternativa automática.
+
+### 4.5 Regiones: por qué dos
 
 | Región | Qué se usa allí | Por qué |
 |---|---|---|
@@ -380,17 +596,22 @@ variables `GUARDRAIL_ID` y `GUARDRAIL_VERSION` del backend.
 | `test_bedrock.py` | Reintento, razonamiento y lectura de JSON | No (cliente falso) |
 | `test_prompts.py` | Idioma, etiquetas anti-manipulación y estilo | No |
 | `test_moderation.py` | Cada rama del diagrama de moderación | No (cliente falso) |
+| `test_story.py` | Empezar, avanzar, paradas, historia completa y que no se guarda el texto original | No (piezas falsas) |
+| `test_store.py` | Guardar, leer, caducidad y bloqueo por doble clic | No (DynamoDB simulado con `moto`) |
+| `test_handlers.py` | Validación de peticiones y cada código de error HTTP | No |
 | `test_classifier_eval.py` | Los 24 textos del corpus contra Nova real | **Sí**, solo si se activa |
 | `infra/tests/test_guardrail.py` | Filtros, nombre del tema y versión | No |
+| `infra/tests/test_story_api.py` | Tabla, Lambdas, permisos mínimos, rutas, límites y CORS | No |
 
 Los tests "con cliente falso" simulan las respuestas de AWS. Son instantáneos, gratis y comprueban
 la lógica. La evaluación real comprueba la calidad de la IA y cuesta unos céntimos.
 
 ### 5.2 Resultados actuales
 
-- Backend: 47 tests pasan y 1 se omite (la evaluación real, que se activa a mano).
+- Backend: 85 tests pasan y 1 se omite (la evaluación real, que se activa a mano).
 - Evaluación real del clasificador: 24 de 24 aciertos.
-- Infra: 3 tests pasan y `cdk synth` funciona.
+- Motor completo con Nova real: historia de 5 pasos en español, sin guardar el texto original.
+- Infra: 10 tests pasan y `cdk synth` genera la plantilla y el paquete de la Lambda.
 - Lint y formato (`ruff`): sin avisos.
 
 ### 5.3 Cómo ejecutarlos
@@ -432,25 +653,88 @@ $env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
 | Angular | Versión 21 en lugar de 22 | Angular 22 exige Node 22.22.3 y tienes 22.22.2 |
 | npm | `legacy-peer-deps` en `frontend/.npmrc` | Fallo interno de npm 10.9 al instalar |
 | Prompts | Instrucciones en inglés, respuesta en el idioma del usuario | Un solo juego que mantener |
+| Infra por tareas | Cada tarea añade su parte de CDK, en vez de dejarla toda para la tarea 8 | Cada tarea termina con algo desplegable |
+| Empaquetado | pip con `--platform` en lugar de Docker | Docker no está instalado en este equipo |
+| Lambdas | ARM64, 512 MB, 29 s | Más barato que x86 y por debajo del corte de 30 s de la API |
 
 ---
 
-## 7. Qué falta
+## 7. Despliegue
+
+### 7.1 Situación actual
+
+Todavía no se ha desplegado nada. El despliegue se hará en **otra cuenta de AWS con acceso por
+SSO**, que aún no está configurada en este equipo.
+
+El código **no depende de ninguna cuenta concreta**. CDK toma la cuenta del perfil con el que se
+despliega, y los identificadores (guardrail, tabla) se generan al desplegar. Cambiar de cuenta no
+requiere tocar código.
+
+### 7.2 Requisitos en la cuenta de destino
+
+Antes de desplegar hay que comprobar en esa cuenta:
+
+1. **Acceso a Nova 2 Lite en `eu-south-2`.** En la cuenta actual ya funciona, en la nueva hay que
+   comprobarlo.
+2. **Acceso a Stable Image Core en `us-west-2`.** No hace falta todavía, sí para la tarea 5.
+3. **Permisos del rol SSO** suficientes para crear con CloudFormation los recursos de la sección
+   4.1: IAM, Lambda, API Gateway, DynamoDB, Bedrock y logs.
+4. **Bootstrap de CDK** en `eu-south-2`. Se hace una sola vez por cuenta y región. Crea un bucket y
+   unos roles que CDK usa para desplegar.
+
+### 7.3 Pasos previstos
+
+```powershell
+# 1. Configurar el perfil SSO (una vez). Pide la URL de inicio de SSO, la cuenta y el rol.
+aws configure sso --profile <perfil-sso>
+
+# 2. Iniciar sesión (cada vez que caduque la sesión SSO)
+aws sso login --profile <perfil-sso>
+
+# 3. Comprobar la cuenta y el acceso a Nova en eu-south-2
+aws sts get-caller-identity --profile <perfil-sso>
+aws bedrock list-inference-profiles --region eu-south-2 --profile <perfil-sso> `
+  --query "inferenceProfileSummaries[?inferenceProfileId=='eu.amazon.nova-2-lite-v1:0'].status"
+
+# 4. Bootstrap (una vez) y despliegue
+cd infra
+.\.venv\Scripts\Activate.ps1
+npx aws-cdk@2.1148.1 bootstrap --profile <perfil-sso> aws://<cuenta>/eu-south-2
+npx aws-cdk@2.1148.1 deploy --profile <perfil-sso>
+```
+
+Al terminar, CDK muestra la URL de la API (`ApiUrl`) y los identificadores del guardrail.
+
+Después del despliegue quedan dos comprobaciones:
+
+- Pasar la evaluación del clasificador con el guardrail activo (cierra la tarea 3.2).
+- Llamar a la API real con una historia completa (cierra la tarea 4.5).
+
+Para borrarlo todo: `npx aws-cdk@2.1148.1 destroy --profile <perfil-sso>`.
+
+### 7.4 Coste orientativo
+
+Todo se paga por uso, así que sin tráfico el coste es casi nulo. Cada historia consume unas 6-8
+llamadas a Nova 2 Lite (clasificación, 5 pasos y alguna comprobación) y las del guardrail. No he
+calculado cifras exactas.
+
+---
+
+## 8. Qué falta
 
 | Tarea | Contenido |
 |---|---|
-| 3.2 (pendiente) | Desplegar el guardrail y repetir la evaluación con él activo |
-| 4 | Lambdas de la historia (`start_session`, `next_step`) y guardar sesiones |
+| 3.2 y 4.5 | Desplegar en la cuenta SSO, probar el guardrail y la API real (sección 7) |
 | 5 | Generar las dos imágenes con Stability y guardarlas en S3 |
 | 6 | Voz con Polly |
 | 7 | Galería pública anonimizada con enlace de borrado |
-| 8 | Resto de la infraestructura: DynamoDB, S3, CloudFront, API Gateway y Lambdas |
+| 8 | Resto de la infraestructura: alojamiento del frontend en S3 y CloudFront, y límite por IP con WAF |
 | 9 | Frontend completo |
 | 10 | Hooks adicionales, prueba de extremo a extremo, README y vídeo |
 
 ---
 
-## 8. Glosario rápido
+## 9. Glosario rápido
 
 | Término | Significado |
 |---|---|
@@ -465,3 +749,8 @@ $env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
 | Deploy | Crear o actualizar los recursos reales en AWS |
 | Lint | Revisión automática de estilo y errores comunes en el código |
 | Cliente falso (fake) | Imitación de AWS usada en tests para no pagar ni depender de la red |
+| SSO | Inicio de sesión único: acceso a AWS con credenciales temporales en vez de claves fijas |
+| Bootstrap | Preparación que CDK necesita una vez por cuenta y región antes del primer despliegue |
+| TTL | Fecha de caducidad de una fila de DynamoDB. Pasada esa fecha, DynamoDB la borra |
+| CORS | Regla del navegador que decide qué webs pueden llamar a la API |
+| Bloqueo optimista | Guardar solo si nadie ha cambiado el dato desde que se leyó |

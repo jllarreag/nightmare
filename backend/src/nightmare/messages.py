@@ -38,11 +38,6 @@ _MESSAGES: dict[Category, dict[Language, str]] = {
     },
 }
 
-GENERATION_ERROR: dict[Language, str] = {
-    "es": "Algo no ha ido bien al crear la historia. Inténtalo de nuevo en unos minutos.",
-    "en": "Something went wrong while creating the story. Please try again in a few minutes.",
-}
-
 
 def stop_message(category: Category, language: Language) -> dict[str, object]:
     """Payload returned to the frontend when a session ends for safety reasons."""
