@@ -1,22 +1,19 @@
-"""Packages backend/ as a Lambda zip for Linux ARM64, without Docker.
+"""Packages backend/ as a Lambda zip for Linux ARM64, using Docker.
 
-pip downloads the Linux wheels (`--platform manylinux2014_aarch64`) on this machine, and the
-`nightmare` package is copied next to them. If local bundling is not possible, CDK falls back
-to the Docker image below.
+CDK runs the command below inside a Linux ARM64 container, so pip downloads the binaries that
+pydantic needs (pydantic_core is compiled code) for the same platform as the Lambda. Docker is
+only needed while running `cdk synth` / `cdk deploy`; the Lambda itself is deployed as a zip.
 """
 
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
-import jsii
-from aws_cdk import BundlingOptions, DockerImage, ILocalBundling
+from aws_cdk import BundlingOptions, DockerImage
 from aws_cdk import aws_lambda as lambda_
 
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 PYTHON_VERSION = "3.12"
 
+# Not copied into the asset (also keeps the asset hash stable).
 _EXCLUDE = [
     ".venv",
     ".pytest_cache",
@@ -27,51 +24,19 @@ _EXCLUDE = [
 ]
 
 
-@jsii.implements(ILocalBundling)
-class _PipLocalBundling:
-    def try_bundle(self, output_dir: str, options: BundlingOptions) -> bool:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--requirement",
-                str(BACKEND / "requirements-lambda.txt"),
-                "--platform",
-                "manylinux2014_aarch64",
-                "--implementation",
-                "cp",
-                "--python-version",
-                PYTHON_VERSION,
-                "--only-binary=:all:",
-                "--target",
-                output_dir,
-                "--quiet",
-                "--disable-pip-version-check",
-            ],
-            check=True,
-        )
-        shutil.copytree(
-            BACKEND / "src" / "nightmare",
-            Path(output_dir) / "nightmare",
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-        return True
-
-
 def backend_code() -> lambda_.Code:
     return lambda_.Code.from_asset(
         str(BACKEND),
         exclude=_EXCLUDE,
         bundling=BundlingOptions(
             image=DockerImage.from_registry(f"public.ecr.aws/sam/build-python{PYTHON_VERSION}"),
+            # The Lambda is ARM64. Without this, an x86 machine would build x86 binaries.
+            platform="linux/arm64",
             command=[
                 "bash",
                 "-c",
                 "pip install -r requirements-lambda.txt -t /asset-output "
                 "&& cp -r src/nightmare /asset-output/",
             ],
-            local=_PipLocalBundling(),
         ),
     )

@@ -25,7 +25,7 @@
   - [x] 4.1 `start_session` handler (validate, classify, step 1, character bible)
   - [x] 4.2 `next_step` handler (moderate choice, steps 2-5, closing with learning and coping tip)
   - [x] 4.3 Session persistence with TTL and no raw text
-  - [x] 4.4 CDK: sessions table, both Lambdas (ARM64, no Docker bundling), HTTP API with throttling and CORS, least-privilege IAM
+  - [x] 4.4 CDK: sessions table, both Lambdas (ARM64, Docker bundling), HTTP API with throttling and CORS, least-privilege IAM
   - [x] 4.6 Cost allocation tag `application=nightmare` on every resource, Nova through a tagged application inference profile
   - [ ] 4.5 Deploy to account alarmaiot and test the API end to end (also closes 3.2). Blocked: eu-south-2 disabled in that account, pending decision (see docs/documento-tecnico.md 8.1)
   - _Requirements: 1.2, 1.3, 3.1-3.5, 7.2, 7.3_

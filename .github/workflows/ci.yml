@@ -47,6 +47,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # The Lambda bundle is built in a linux/arm64 container; runners are x86 and need emulation.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - run: pip install -r requirements-dev.txt
       - run: pytest -q
       - run: npx --yes aws-cdk@2.1148.1 synth --quiet

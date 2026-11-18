@@ -567,17 +567,22 @@ procesar el texto fuera de Europa, aunque hubiera un error en el código.
 
 ### 4.4 Cómo se empaqueta el backend (`stacks/bundling.py`)
 
-Una Lambda necesita un zip con el código y sus dependencias. CDK lo crea al hacer `synth`:
+Una Lambda necesita un zip con el código y sus dependencias. CDK lo crea al hacer `synth` o
+`deploy`, ejecutando un comando dentro de un contenedor Docker de Linux ARM64
+(`public.ecr.aws/sam/build-python3.12`):
 
-1. Descarga pydantic **compilado para Linux ARM64**, aunque estés en Windows (opción
-   `--platform manylinux2014_aarch64` de pip).
-2. Copia la carpeta `backend/src/nightmare`.
+1. `pip install -r requirements-lambda.txt -t /asset-output`: instala pydantic con sus
+   binarios para Linux ARM64 (`pydantic_core` es código compilado).
+2. `cp -r src/nightmare /asset-output/`: copia el código de la app.
 
-No incluye boto3, que ya viene en el entorno de Lambda, ni los tests ni el entorno virtual. El
-paquete ocupa unos 9 MB.
+No incluye boto3, que ya viene en el entorno de Lambda, ni los tests ni el entorno virtual.
 
-Lo normal en CDK es empaquetar con Docker, pero no lo tienes instalado. Por eso se usa pip
-directamente, y Docker queda solo como alternativa automática.
+Docker solo se usa durante el empaquetado. La Lambda se despliega como un zip normal, sin pasar
+por ECR. La opción `platform="linux/arm64"` es necesaria: sin ella, un ordenador x86
+construiría binarios x86 y la Lambda (ARM64) fallaría al importar pydantic.
+
+**Requisito:** `cdk synth` y `cdk deploy` necesitan Docker en marcha. Los tests de
+`infra/tests` no lo necesitan, porque desactivan el empaquetado.
 
 ### 4.5 Regiones: por qué dos
 
@@ -658,7 +663,7 @@ $env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
 | npm | `legacy-peer-deps` en `frontend/.npmrc` | Fallo interno de npm 10.9 al instalar |
 | Prompts | Instrucciones en inglés, respuesta en el idioma del usuario | Un solo juego que mantener |
 | Infra por tareas | Cada tarea añade su parte de CDK, en vez de dejarla toda para la tarea 8 | Cada tarea termina con algo desplegable |
-| Empaquetado | pip con `--platform` en lugar de Docker | Docker no está instalado en este equipo |
+| Empaquetado | Solo Docker (contenedor Linux ARM64) | Código más simple, sin jsii; hay que desplegar desde un equipo con Docker |
 | Lambdas | ARM64, 512 MB, 29 s | Más barato que x86 y por debajo del corte de 30 s de la API |
 | Tags | `application = nightmare` en toda la app CDK | Separar el gasto de la app en Cost Explorer |
 | Llamadas a Nova | A través de un perfil de inferencia de aplicación | Es la única forma de etiquetar el gasto de Bedrock |
