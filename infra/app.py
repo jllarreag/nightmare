@@ -6,7 +6,6 @@ import os
 import aws_cdk as cdk
 
 from stacks.nightmare_stack import NightmareStack
-from stacks.tagging import apply_app_tags
 
 app = cdk.App()
 
@@ -19,7 +18,6 @@ NightmareStack(
     ),
 )
 
-# At app level, so the stack and every resource (including future stacks) get the tags.
-apply_app_tags(app)
+cdk.Tags.of(app).add("application", "nightmare")
 
 app.synth()

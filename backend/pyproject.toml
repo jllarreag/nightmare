@@ -4,20 +4,17 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.35",
-    "pydantic>=2.8",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
-    "moto[dynamodb]==5.2.5",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-markers = ["bedrock: calls real Amazon Bedrock (opt-in with RUN_BEDROCK=1)"]
 
 [tool.ruff]
 line-length = 100

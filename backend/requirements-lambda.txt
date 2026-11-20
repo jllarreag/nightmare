@@ -1,3 +1,0 @@
-# Packaged into the Lambda zip (boto3 is provided by the Lambda runtime).
-# Keep in sync with the version used in development (pip show pydantic).
-pydantic==2.14.3

@@ -1,83 +1,21 @@
-"""Pydantic schemas shared by every Lambda. They are the contract for model output too."""
+"""Datos de la app: constantes del arco, Step, Session y el error de API.
 
+Sin pydantic: cada clase es un dataclass y `Step.from_dict` valida lo que devuelve el modelo.
+"""
+
+import json
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
-from typing import Literal
-
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any, Literal
 
 Language = Literal["es", "en"]
 
 TOTAL_STEPS = 5
 MAX_NARRATION_WORDS = 120
-# Only the nightmare (step 1) and the rewritten, healing ending (step 4) get an image.
-IMAGE_STEPS = frozenset({1, 4})
+IMAGE_STEPS = (1, 4)  # solo la pesadilla (1) y el final reescrito (4) llevan imagen
 
-
-class Technique(StrEnum):
-    RECREATE = "recreate"
-    CONTROL = "control"
-    DECISION = "decision"
-    REWRITE = "rewrite"
-    CLOSING = "closing"
-
-
-# The arc is fixed: step number -> technique.
-STEP_TECHNIQUES: dict[int, Technique] = {
-    1: Technique.RECREATE,
-    2: Technique.CONTROL,
-    3: Technique.DECISION,
-    4: Technique.REWRITE,
-    5: Technique.CLOSING,
-}
-
-
-class Choice(BaseModel):
-    id: str = Field(min_length=1, max_length=8)
-    label: str = Field(min_length=1, max_length=160)
-
-
-class Step(BaseModel):
-    """One step of the story, exactly as the model must return it."""
-
-    step: int = Field(ge=1, le=TOTAL_STEPS)
-    title: str = Field(min_length=1, max_length=120)
-    narration: str = Field(min_length=1)
-    choices: list[Choice] = Field(default_factory=list)
-    image_prompt: str | None = None
-    technique: Technique
-    learning: str | None = None
-    coping_tip: str | None = None
-
-    @field_validator("narration")
-    @classmethod
-    def narration_is_short(cls, value: str) -> str:
-        if len(value.split()) > MAX_NARRATION_WORDS:
-            raise ValueError(f"narration must have at most {MAX_NARRATION_WORDS} words")
-        return value
-
-    @model_validator(mode="after")
-    def follows_the_arc(self) -> "Step":
-        expected = STEP_TECHNIQUES[self.step]
-        if self.technique != expected:
-            raise ValueError(f"step {self.step} must use technique '{expected}'")
-
-        if self.step == TOTAL_STEPS:
-            if self.choices:
-                raise ValueError("the closing step must not have choices")
-            if not self.learning or not self.coping_tip:
-                raise ValueError("the closing step needs a learning and a coping tip")
-        elif not 2 <= len(self.choices) <= 3:
-            raise ValueError("steps before the closing must have 2 or 3 choices")
-
-        if len({choice.id for choice in self.choices}) != len(self.choices):
-            raise ValueError("choice ids must be unique")
-
-        if self.step in IMAGE_STEPS and not self.image_prompt:
-            raise ValueError(f"step {self.step} needs an image_prompt")
-        if self.step not in IMAGE_STEPS and self.image_prompt:
-            # Not an error worth a retry: images are only generated for steps 1 and 4.
-            self.image_prompt = None
-        return self
+# El arco es fijo: número de paso -> técnica
+TECHNIQUES = {1: "recreate", 2: "control", 3: "decision", 4: "rewrite", 5: "closing"}
 
 
 class Category(StrEnum):
@@ -87,56 +25,102 @@ class Category(StrEnum):
     RISK = "risk"
 
 
-class Classification(BaseModel):
-    category: Category
-    # Short internal reason. Never shown to the user and never logged with user text.
-    reason: str = Field(default="", max_length=300)
+class ApiError(Exception):
+    """Error que se devuelve al frontend como {"error": code} con el status HTTP indicado."""
+
+    def __init__(self, status: int, code: str) -> None:
+        super().__init__(code)
+        self.status = status
+        self.code = code
+
+
+@dataclass
+class Choice:
+    id: str
+    label: str
+
+
+@dataclass
+class Step:
+    step: int
+    title: str
+    narration: str
+    technique: str
+    choices: list[Choice] = field(default_factory=list)
+    image_prompt: str | None = None
+    learning: str | None = None
+    coping_tip: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Step":
+        """Valida el JSON del modelo. Lanza ValueError/KeyError/TypeError si no cumple."""
+        step = cls(
+            step=int(data["step"]),
+            title=str(data["title"]),
+            narration=str(data["narration"]),
+            technique=str(data["technique"]),
+            choices=[Choice(str(c["id"]), str(c["label"])) for c in data.get("choices") or []],
+            image_prompt=data.get("image_prompt") or None,
+            learning=data.get("learning") or None,
+            coping_tip=data.get("coping_tip") or None,
+        )
+        step.check()
+        return step
+
+    def check(self) -> None:
+        if self.step not in TECHNIQUES:
+            raise ValueError(f"step must be 1..{TOTAL_STEPS}")
+        if self.technique != TECHNIQUES[self.step]:
+            raise ValueError(f"step {self.step} must use technique '{TECHNIQUES[self.step]}'")
+        if not self.title or not self.narration:
+            raise ValueError("title and narration are required")
+        if len(self.narration.split()) > MAX_NARRATION_WORDS:
+            raise ValueError(f"narration must have at most {MAX_NARRATION_WORDS} words")
+        if self.step == TOTAL_STEPS:
+            if self.choices:
+                raise ValueError("the closing step must not have choices")
+            if not (self.learning and self.coping_tip):
+                raise ValueError("the closing step needs learning and coping_tip")
+        else:
+            if not 2 <= len(self.choices) <= 3:
+                raise ValueError("steps before the closing need 2 or 3 choices")
+            if len({c.id for c in self.choices}) != len(self.choices):
+                raise ValueError("choice ids must be unique")
+        if self.step in IMAGE_STEPS and not self.image_prompt:
+            raise ValueError(f"step {self.step} needs an image_prompt")
+        if self.step not in IMAGE_STEPS:
+            self.image_prompt = None
+
+    def text(self) -> str:
+        """Todo el texto visible del paso (para pasarlo por el guardrail de salida)."""
+        parts = [self.title, self.narration, *(c.label for c in self.choices)]
+        return "\n".join(parts + [p for p in (self.learning, self.coping_tip) if p])
+
+    def public(self) -> dict[str, Any]:
+        """Lo que recibe el frontend: sin image_prompt (interno)."""
+        data = asdict(self)
+        del data["image_prompt"]
+        data["has_image"] = self.step in IMAGE_STEPS
+        return data
+
+
+@dataclass
+class Session:
+    id: str
+    language: Language
+    summary: str  # resumen anónimo; el texto original de la pesadilla nunca se guarda
+    history: list[Step] = field(default_factory=list)
+    chosen: list[str] = field(default_factory=list)
 
     @property
-    def allowed(self) -> bool:
-        return self.category == Category.OK
+    def step_index(self) -> int:
+        return len(self.history)
 
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False)
 
-class StoryOpening(BaseModel):
-    """Output of the first generation: step 1 plus the sanitized character bible."""
-
-    character_bible: str = Field(
-        min_length=1,
-        max_length=400,
-        description="Generic visual description of the main character, no personal data",
-    )
-    summary: str = Field(
-        min_length=1,
-        max_length=600,
-        description="Anonymized summary of the nightmare, used instead of the raw text",
-    )
-    step: Step
-
-
-class VisualPrompt(BaseModel):
-    """A sanitized image prompt: the only text that may leave the EU."""
-
-    prompt: str = Field(min_length=1, max_length=600)
-    safe: bool
-
-
-class Session(BaseModel):
-    id: str
-    language: Language
-    step_index: int = Field(ge=1, le=TOTAL_STEPS)
-    summary: str
-    character_bible: str
-    history: list[Step] = Field(default_factory=list)
-    chosen: list[str] = Field(default_factory=list)
-    image_keys: dict[int, str] = Field(default_factory=dict)
-    ttl: int
-
-
-class GalleryItem(BaseModel):
-    id: str
-    title: str
-    language: Language
-    steps: list[Step]
-    image_keys: dict[int, str] = Field(default_factory=dict)
-    created_at: str
-    delete_token_hash: str
+    @classmethod
+    def from_json(cls, raw: str) -> "Session":
+        data = json.loads(raw)
+        data["history"] = [Step.from_dict(s) for s in data["history"]]
+        return cls(**data)

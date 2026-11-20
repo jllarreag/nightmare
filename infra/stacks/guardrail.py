@@ -2,7 +2,7 @@
 
 Calibrated for nightmares: violent dreams are common and valid, so input VIOLENCE is LOW and the
 Nova classifier decides what is gratuitous. The SelfHarm denied topic is mapped to `risk` by
-backend/src/nightmare/moderation.py (SELF_HARM_TOPIC) and must keep that exact name.
+backend/src/nightmare/safety.py (SELF_HARM_TOPIC) and must keep that exact name.
 """
 
 from aws_cdk import aws_bedrock as bedrock

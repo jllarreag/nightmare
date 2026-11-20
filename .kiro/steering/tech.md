@@ -2,7 +2,7 @@
 
 ## Stack
 - Frontend: Angular (standalone components, signals), i18n ES/EN, strict TypeScript.
-- Backend: Python 3.12 Lambdas, boto3, pydantic for schemas, pytest.
+- Backend: Python 3.12 Lambdas, boto3, plain dataclasses (no pydantic: the Lambda zip is just the source folder), pytest.
 - Infra: AWS CDK in Python. Base region `eu-south-2`.
 
 ## Bedrock models
@@ -13,8 +13,8 @@
 - Voice: Amazon Polly (neural voices, es-ES and en-US/en-GB).
 
 ## Rules
-- All model calls return structured JSON validated with pydantic; reject and retry once on invalid output.
+- All model calls return structured JSON validated in code (Step.from_dict); retry once on invalid output.
 - Model ids and regions come from environment variables, never hardcoded in handlers.
 - Least-privilege IAM per Lambda. Throttling on API Gateway.
-- Keep each Lambda small and single-purpose.
+- Keep it simple: plain functions, module-level boto3 clients, no dependency-injection layers.
 - Always run tests and `cdk synth` before declaring a task done.
