@@ -1,65 +1,57 @@
 # Implementation plan: Nightmare Resolver
 
+Cada tarea añade backend e infra a la vez. Mantener el código simple (ver design.md).
+
 - [x] 1. Project scaffolding
   - [x] 1.1 Create `backend/` (pyproject, pytest, ruff), `frontend/` (Angular CLI, strict), `infra/` (CDK Python)
-  - [x] 1.2 Add CI workflow: backend tests, frontend build, `cdk synth`
+  - [x] 1.2 Add CI workflow: backend tests, frontend build, infra tests and `cdk synth`
   - _Requirements: 8.1_
-
-- [x] 2. Shared backend library
-  - [x] 2.1 Pydantic models for Step, Session, Classification, GalleryItem
-  - [x] 2.2 Bedrock Converse wrapper for Nova 2 Lite (JSON output, one retry)
-  - [x] 2.3 Prompt templates ES/EN (story, classifier, sanitizer, anonymizer)
-  - [x] 2.4 Smoke test the prompts against real Nova 2 Lite in eu-south-2 (classifier 4/4, full ES and EN stories)
+- [x] 2. Core backend
+  - [x] 2.1 `models.py`: arco de 5 pasos, `Step.from_dict` con validación, `Session`
+  - [x] 2.2 `ai.py`: `ask()` para Nova 2 Lite con JSON validado y un reintento
+  - [x] 2.3 `prompts.py` ES/EN (historia, clasificador)
+  - [ ] 2.4 Volver a probar los prompts contra Nova real tras la simplificación (historia completa ES y EN)
   - _Requirements: 1.4, 3.1, 3.5_
-
 - [ ] 3. Moderation
-  - [x] 3.1 Classifier (`ok | not_serious | forbidden_content | risk`) with tests on a sample corpus (24/24 on real Nova, ES/EN)
-  - [ ] 3.2 Guardrails integration for input/output text
-    - [x] ApplyGuardrail wrapper, policy-to-category mapping, guardrail defined in CDK
-    - [ ] Deploy the guardrail and run the corpus eval with GUARDRAIL_ID set
-  - [x] 3.3 Image prompt sanitizer + moderation before image generation (model + denylist + guardrail)
-  - [x] 3.4 Localized stop messages with help resources for `risk`
+  - [x] 3.1 `safety.classify()` (`ok | not_serious | forbidden_content | risk`) y `output_is_safe()`
+  - [ ] 3.2 Desplegar el guardrail y pasar un corpus de entradas (ok, not_serious, forbidden, risk; ES/EN) contra Nova real. Comprobar que no se rechazan pesadillas oscuras genuinas
+  - [x] 3.3 Mensajes de parada localizados con recursos de ayuda para `risk`
+  - [ ] 3.4 Moderar el prompt de imagen antes de enviarlo a `us-west-2` (con la tarea 5)
   - _Requirements: 2.1-2.5, 4.1, 4.2_
-
 - [ ] 4. Story engine
-  - [x] 4.1 `start_session` handler (validate, classify, step 1, character bible)
-  - [x] 4.2 `next_step` handler (moderate choice, steps 2-5, closing with learning and coping tip)
-  - [x] 4.3 Session persistence with TTL and no raw text
-  - [x] 4.4 CDK: sessions table, both Lambdas (ARM64, Docker bundling), HTTP API with throttling and CORS, least-privilege IAM
-  - [x] 4.6 Cost allocation tag `application=nightmare` on every resource, Nova through a tagged application inference profile
-  - [ ] 4.5 Deploy to account alarmaiot and test the API end to end (also closes 3.2). Blocked: eu-south-2 disabled in that account, pending decision (see docs/documento-tecnico.md 8.1)
+  - [x] 4.1 `story.start()`: validar, clasificar, paso 1, guardar sesión sin texto original
+  - [x] 4.2 `story.next_step()`: validar elección, pasos 2-5, cierre con razonamiento extendido
+  - [x] 4.3 Persistencia con TTL de 24 h (`db.py`)
+  - [x] 4.4 CDK: tabla, Lambda única (ARM64, sin Docker), HTTP API con throttling y CORS, IAM mínimo
+  - [x] 4.5 Tag de coste `application=nightmare` en toda la app CDK
+  - [ ] 4.6 Desplegar en la cuenta `alarmaiot` y probar la API de extremo a extremo (cierra 2.4 y 3.2). Bloqueado: `eu-south-2` está desactivada en esa cuenta (ver docs/documento-tecnico.md, sección 7)
   - _Requirements: 1.2, 1.3, 3.1-3.5, 7.2, 7.3_
-
 - [ ] 5. Images
-  - [ ] 5.1 Stability client in `us-west-2`, S3 storage, fixed style suffix
-  - [ ] 5.2 Generate only 2 images (step 1 and rewritten ending), the final one in background, with placeholder fallback
+  - [ ] 5.1 Función que pide a Nova un prompt visual saneado (sin nombres ni lugares) y lo modera
+  - [ ] 5.2 Cliente de Stability en `us-west-2`, almacenamiento en S3, sufijo de estilo fijo, personaje recurrente
+  - [ ] 5.3 Solo 2 imágenes (paso 1 y final reescrito), la final en segundo plano, con placeholder si falla
   - _Requirements: 4.1-4.6_
-
 - [ ] 6. Voice
-  - [ ] 6.1 `speak` handler with Polly (es-ES / en) and S3 cache
+  - [ ] 6.1 Ruta `speak` con Polly (es-ES / en) y caché en S3
   - _Requirements: 5.1_
-
 - [ ] 7. Gallery
-  - [ ] 7.1 Anonymize + re-moderate + publish, delete token
-  - [ ] 7.2 Paginated list endpoint
+  - [ ] 7.1 Anonimizar, volver a moderar y publicar; token de borrado
+  - [ ] 7.2 Listado paginado
   - _Requirements: 6.1-6.5_
-
-- [ ] 8. Infrastructure (CDK)
-  - [ ] 8.1 DataStack: DynamoDB, S3, CloudFront
-  - [ ] 8.2 GuardrailStack and ApiStack (Lambdas, API Gateway, throttling, least-privilege IAM)
-  - [ ] 8.3 FrontendStack: hosting and deployment
+- [ ] 8. Infrastructure
+  - [ ] 8.1 S3 y CloudFront
+  - [ ] 8.2 Límite por IP con WAF
+  - [ ] 8.3 Alojamiento y despliegue del frontend
   - _Requirements: 7.1, 8.2_
-
 - [ ] 9. Frontend
-  - [ ] 9.1 Home with disclaimer, language switch, input and validation
-  - [ ] 9.2 Story view: step, choices, image, loading states
-  - [ ] 9.3 Audio player with captions and controls
-  - [ ] 9.4 Gallery list/detail and share/delete flow
-  - [ ] 9.5 Dark atmospheric theme, reduced-motion, accessibility pass
+  - [ ] 9.1 Home con disclaimer, selector de idioma, entrada y validación
+  - [ ] 9.2 Vista de la historia: paso, opciones, imagen, estados de carga
+  - [ ] 9.3 Reproductor de audio con subtítulos y controles
+  - [ ] 9.4 Galería y flujo de compartir/borrar
+  - [ ] 9.5 Tema oscuro atmosférico, reduced-motion, accesibilidad
   - _Requirements: 1.1, 3.2, 5.2, 5.3, 6.5_
-
 - [ ] 10. Hooks and polish
-  - [ ] 10.1 Kiro hooks: run backend tests on save, validate prompt templates
-  - [ ] 10.2 End-to-end test of the 4 moderation paths and a full story
-  - [ ] 10.3 README with architecture and Kiro usage, demo video script
+  - [x] 10.1 Hook de Kiro: tests del backend al guardar
+  - [ ] 10.2 Prueba de extremo a extremo de las 4 rutas de moderación y una historia completa
+  - [ ] 10.3 README con arquitectura y uso de Kiro, guion del vídeo de demo
   - _Requirements: 8.1-8.3_

@@ -1,54 +1,72 @@
 # Design: Nightmare Resolver
 
+Principio: lo más simple que funcione. Una Lambda, funciones sueltas, sin pydantic y sin capas de inyección de dependencias.
+
 ## Architecture
 
 ```mermaid
 flowchart LR
-  U[Angular app] -->|HTTPS| APIGW[API Gateway + throttling]
-  APIGW --> L1[start_session Lambda]
-  APIGW --> L2[next_step Lambda]
-  APIGW --> L3[speak Lambda]
-  APIGW --> L4[gallery Lambda: share/list/delete]
-  L1 & L2 & L4 -->|eu.amazon.nova-2-lite-v1:0| BR[Bedrock eu-south-2]
-  L1 & L2 --> GR[Guardrails]
-  L2 -->|sanitized visual prompt| IMG[Bedrock us-west-2 Stability]
-  L3 --> POLLY[Polly]
-  L1 & L2 & L4 --> DDB[(DynamoDB)]
-  L2 & L3 --> S3[(S3)]
-  S3 --> CF[CloudFront]
-  U --> CF
+  U[Angular app] -->|HTTPS| APIGW[HTTP API + throttling]
+  APIGW --> L[Lambda única: handler.py]
+  L -->|eu.amazon.nova-2-lite-v1:0| BR[Bedrock eu-south-2]
+  L --> GR[Guardrail]
+  L --> DDB[(DynamoDB sessions)]
+  L -.->|futuro: prompt saneado| IMG[Bedrock us-west-2 Stability]
+  L -.->|futuro| POLLY[Polly]
+  L -.->|futuro| S3[(S3)] --> CF[CloudFront]
+  U -.-> CF
 ```
 
-Base region: `eu-south-2`. Only image generation calls `us-west-2`.
+Base region: `eu-south-2`. Solo la generación de imágenes (futura) llama a `us-west-2`.
+
+Rutas (una sola Lambda enruta por `routeKey`):
+
+| Ruta | Función |
+|---|---|
+| `POST /sessions` | `story.start(nightmare, language)` |
+| `POST /sessions/{session_id}/steps` | `story.next_step(session_id, choice_id)` |
+| futuras: `speak`, galería | funciones nuevas en `story.py` o ficheros propios |
 
 ## Components
 
-### Backend (Python 3.12, `backend/`)
-- `shared/models.py`: pydantic schemas (Step, Session, Classification, GalleryItem).
-- `shared/bedrock.py`: Converse wrapper for Nova 2 Lite with JSON output, one retry on invalid JSON.
-- `shared/moderation.py`: Guardrails + LLM classifier returning `ok | not_serious | forbidden_content | risk`.
-- `shared/images.py`: calls Stability in `us-west-2`, saves to S3.
-- `shared/prompts/`: prompt templates (ES/EN) for story, classifier, sanitizer, anonymizer.
-- `handlers/start_session.py`: validate, classify, create session, generate step 1 and sanitized character/style bible.
-- `handlers/next_step.py`: moderate choice, generate next step (+ image prompt), trigger image.
-- `handlers/speak.py`: Polly synthesis, cached in S3 by hash.
-- `handlers/gallery.py`: share (anonymize + moderate + publish), list (paginated), delete (token).
+### Backend (Python 3.12, `backend/src/nightmare/`)
+
+| Fichero | Contenido |
+|---|---|
+| `handler.py` | Entrada de la Lambda: enruta, lee el body, traduce errores a HTTP |
+| `story.py` | `start()` y `next_step()` |
+| `ai.py` | `ask(system, user, parse)`: Converse a Nova, extrae JSON, valida con `parse`, un reintento |
+| `safety.py` | `classify()` (guardrail + clasificador) y `output_is_safe()` |
+| `db.py` | `save`, `load`, `delete` de sesiones |
+| `models.py` | Constantes del arco, `Step` (con `from_dict` que valida), `Session`, `Category`, `ApiError` |
+| `prompts.py` | Plantillas de prompts |
+| `messages.py` | Mensajes de parada y recursos de ayuda |
+
+Reglas de diseño:
+- Los clientes boto3 son variables de módulo (Lambda los reutiliza). No hay caché ni `wiring`.
+- Configuración con variables de entorno leídas al inicio del módulo.
+- Un único error propio, `ApiError(status, code)`. Los `ClientError` de AWS se mapean en el handler (429 si es throttling, 503 en otro caso). Cualquier otra excepción es 500 sin detalles.
+- Validar la salida del modelo es una función (`Step.from_dict`), no un framework.
 
 ### Frontend (Angular, `frontend/`)
-- Routes: `/` (home + disclaimer + input), `/story/:id`, `/gallery`.
-- State with signals; i18n ES/EN; audio player with captions; reduced-motion support.
+- Rutas: `/` (home + disclaimer + input), `/story/:id`, `/gallery`.
+- Estado con signals; i18n ES/EN; reproductor con subtítulos; `prefers-reduced-motion`.
 
 ### Infra (CDK Python, `infra/`)
-- Stacks: `ApiStack`, `DataStack` (DynamoDB, S3, CloudFront), `FrontendStack`, `GuardrailStack`.
-- Env vars for model ids and regions. Least-privilege IAM per Lambda.
+- `stacks/nightmare_stack.py`: tabla, Lambda, IAM y HTTP API en un solo stack.
+- `stacks/guardrail.py`: guardrail y su versión.
+- El código se sube con `Code.from_asset("backend/src")`. Sin Docker ni dependencias propias (boto3 ya viene en Lambda).
+- Lambda ARM64, 512 MB, 29 s. API con límite global de 5 req/s (ráfaga 10) y CORS configurable con `-c allowedOrigins=[...]`.
+- IAM mínimo: `InvokeModel` solo sobre el perfil UE de Nova y el modelo en regiones `eu-*`; `ApplyGuardrail` solo sobre nuestro guardrail; lectura/escritura solo sobre la tabla.
 
 ## Data model (DynamoDB)
-- `Session`: `pk=SESSION#id`, `language`, `step_index`, `history[]` (anonymized summaries only), `character_bible`, `ttl`.
-- `Gallery`: `pk=GALLERY`, `sk=ts#id`, `title`, `steps[]` (text + image key), `language`, `delete_token_hash`.
 
-The raw nightmare text is kept only in memory during the request. Sessions store a sanitized summary.
+- Sesión: `pk = SESSION#<id>`, `ttl` (24 h), `data` (JSON de `Session`: `language`, `summary`, `history[]`, `chosen[]`).
+- El texto original de la pesadilla solo existe en memoria durante la petición. Se guarda un resumen anónimo.
+- Futuro, galería: `pk = GALLERY`, `sk = ts#id`, título, pasos, idioma, hash del token de borrado.
 
 ## Story step JSON contract
+
 ```json
 {
   "step": 1,
@@ -62,13 +80,35 @@ The raw nightmare text is kept only in memory during the request. Sessions store
 }
 ```
 
+`Step.from_dict` comprueba: técnica según el paso, 2-3 opciones con ids únicos (ninguna en el cierre), `learning` y `coping_tip` en el cierre, `image_prompt` en los pasos 1 y 4, máximo de palabras.
+
+Respuestas de la API:
+
+```json
+{"status": "ok", "session_id": "...", "step": {}, "finished": false}
+{"status": "stopped", "category": "risk|not_serious|forbidden_content", "message": "...", "resources": []}
+{"error": "language|nightmare_length|choice|body|session_not_found|session_finished|generation_failed|busy|unavailable|internal|not_found"}
+```
+
+## Moderation flow
+
+1. Guardrail sobre la entrada. Si salta el tema `SelfHarm` → `risk` directamente.
+2. Clasificador de Nova (`ok | not_serious | forbidden_content | risk`). `risk` siempre gana.
+3. Si el guardrail bloqueó y el clasificador no dijo `risk` → `forbidden_content`.
+4. Cada paso generado pasa por el guardrail de salida. Si falla, se borra la sesión y se para.
+5. Las elecciones son botones: validar el `id` contra las opciones del paso es su moderación.
+6. Futuro: moderar el prompt de imagen antes de enviarlo a `us-west-2`.
+
 ## Error handling
-- Invalid model JSON: retry once, then fail the step with a friendly message.
-- Image failure: placeholder, story continues.
-- Moderation failure: end session safely, no storage.
-- Throttling: HTTP 429 with a localized message.
+
+- JSON inválido del modelo: un reintento y después `502 generation_failed`.
+- Throttling de Bedrock: `429 busy`.
+- Fallo de imagen (futuro): placeholder, la historia continúa.
+- Fallo de moderación a mitad de historia: se acaba la sesión y no se guarda nada.
 
 ## Testing strategy
-- pytest with mocked boto3 for handlers and moderation paths.
-- Fixed corpus of sample inputs for the classifier (ok, not_serious, forbidden, risk).
-- Angular unit tests for the story flow component; `cdk synth` in CI.
+
+- `backend/tests/test_app.py`: pytest con fakes de `ai.ask`, `db` y `safety` (arco, paradas, historia completa, rutas y errores del handler).
+- `infra/tests/test_stack.py`: aserciones sobre la plantilla (una Lambda, rutas, TTL, permisos, guardrail, CORS) y `cdk synth` en CI.
+- Pendiente: corpus de entradas reales para el clasificador, ejecutado a mano contra Bedrock.
+- Angular: tests unitarios del flujo de la historia.
