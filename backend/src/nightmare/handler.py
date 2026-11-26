@@ -2,6 +2,9 @@
 
     POST /sessions                      {"nightmare": str, "language": "es" | "en"}
     POST /sessions/{session_id}/steps   {"choice_id": str}
+    POST /sessions/{session_id}/publish {"consent": true}
+    GET /gallery?language=&limit=&cursor=
+    DELETE /gallery/{story_id}          header x-delete-token
 
 No se registran cuerpos ni mensajes de excepción: pueden contener texto del usuario.
 """
@@ -12,7 +15,7 @@ import logging
 
 from botocore.exceptions import ClientError
 
-from nightmare import story
+from nightmare import gallery, story
 from nightmare.models import ApiError
 
 logger = logging.getLogger()
@@ -42,6 +45,15 @@ def read_body(event: dict) -> dict:
     return body
 
 
+def parse_limit(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ApiError(400, "limit") from None
+
+
 def handler(event, context):
     try:
         body = read_body(event)
@@ -51,6 +63,17 @@ def handler(event, context):
         elif route == "POST /sessions/{session_id}/steps":
             session_id = (event.get("pathParameters") or {}).get("session_id")
             result = story.next_step(session_id, body.get("choice_id"))
+        elif route == "POST /sessions/{session_id}/publish":
+            session_id = (event.get("pathParameters") or {}).get("session_id")
+            result = gallery.publish(session_id, body.get("consent"))
+        elif route == "GET /gallery":
+            query = event.get("queryStringParameters") or {}
+            result = gallery.list_stories(
+                query.get("language"), parse_limit(query.get("limit")), query.get("cursor")
+            )
+        elif route == "DELETE /gallery/{story_id}":
+            story_id = (event.get("pathParameters") or {}).get("story_id")
+            result = gallery.delete(story_id, (event.get("headers") or {}).get("x-delete-token"))
         else:
             raise ApiError(404, "not_found")
         return respond(200, result)

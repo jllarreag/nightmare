@@ -111,6 +111,7 @@ class Session:
     summary: str  # resumen anónimo; el texto original de la pesadilla nunca se guarda
     history: list[Step] = field(default_factory=list)
     chosen: list[str] = field(default_factory=list)
+    published: bool = False  # ya se publicó en la galería (solo una vez por sesión)
 
     @property
     def step_index(self) -> int:

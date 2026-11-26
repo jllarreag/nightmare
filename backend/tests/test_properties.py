@@ -8,12 +8,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from nightmare import gallery
 from nightmare.messages import stop_message
 from nightmare.models import (
     IMAGE_STEPS,
     MAX_NARRATION_WORDS,
     TECHNIQUES,
     TOTAL_STEPS,
+    ApiError,
     Category,
     Session,
     Step,
@@ -127,3 +129,75 @@ def test_only_risk_stops_show_help_resources(category, language):
         assert {"024", "112"} <= contacts
     else:
         assert payload["resources"] == []
+
+
+key_text = st.text(alphabet=st.characters(categories=["L", "N"]), min_size=1, max_size=20)
+
+
+@given(key_text, key_text, st.sampled_from(["es", "en"]))
+def test_cursor_round_trip(pk, gsk, language):
+    key = {"pk": pk, "gpk": f"GALLERY#{language}", "gsk": gsk}
+    assert gallery.decode_cursor(gallery.encode_cursor(key), language) == key
+
+
+@given(st.text(max_size=60), st.sampled_from(["es", "en"]))
+def test_garbage_cursors_are_rejected(cursor, language):
+    with pytest.raises(ApiError) as error:
+        gallery.decode_cursor(cursor, language)
+    assert (error.value.status, error.value.code) == (400, "cursor")
+
+
+@given(key_text, key_text, st.sampled_from(["es", "en"]))
+def test_cursor_of_another_language_or_with_extra_keys_is_rejected(pk, gsk, language):
+    other = "en" if language == "es" else "es"
+    wrong = {"pk": pk, "gpk": f"GALLERY#{other}", "gsk": gsk}
+    extra = {"pk": pk, "gpk": f"GALLERY#{language}", "gsk": gsk, "x": "y"}
+    for key in (wrong, extra):
+        with pytest.raises(ApiError):
+            gallery.decode_cursor(gallery.encode_cursor(key), language)
+
+
+@st.composite
+def original_story(draw):
+    return [Step.from_dict(draw(valid_step(number=n))) for n in range(1, TOTAL_STEPS + 1)]
+
+
+def anonymized(original):
+    return {
+        "steps": [
+            {
+                "step": s.step,
+                "title": "t",
+                "narration": "n",
+                "learning": "l" if s.step == TOTAL_STEPS else None,
+                "coping_tip": "c" if s.step == TOTAL_STEPS else None,
+            }
+            for s in original
+        ]
+    }
+
+
+@given(original_story())
+def test_anonymized_story_keeps_step_numbers_and_allowlist(original):
+    steps = gallery.parse_anonymized(original)(anonymized(original))
+    assert [s["step"] for s in steps] == [s.step for s in original]
+    assert all(s["image"] is None for s in steps)
+    assert [s["has_image"] for s in steps] == [s.step in IMAGE_STEPS for s in original]
+
+
+@given(original_story(), st.integers(0, TOTAL_STEPS - 1), st.integers(6, 99))
+def test_anonymized_story_with_other_step_numbers_is_rejected(original, index, number):
+    data = anonymized(original)
+    data["steps"][index]["step"] = number
+    with pytest.raises(ValueError):
+        gallery.parse_anonymized(original)(data)
+    data = anonymized(original)
+    data["steps"].pop(index)
+    with pytest.raises(ValueError):
+        gallery.parse_anonymized(original)(data)
+
+
+@given(st.text(min_size=1, max_size=80))
+def test_token_hash_is_deterministic_and_never_the_token(token):
+    assert gallery.hash_token(token) == gallery.hash_token(token)
+    assert gallery.hash_token(token) != token
