@@ -14,9 +14,9 @@ Leyenda: ✅ hecho y probado con tests · 🟡 programado, falta desplegar o pro
 | 4 | Motor de la historia y API | ✅ | 🟡 tabla, Lambda y API definidas | 🟡 |
 | 5 | Imágenes (Stability) | ⬜ | ⬜ | ⬜ |
 | 6 | Voz (Polly) | ⬜ | ⬜ | ⬜ |
-| 7 | Galería pública | ⬜ | ⬜ | ⬜ |
+| 7 | Galería pública | ✅ publicar (anonimizada y moderada), listar, borrar con token | 🟡 índice `gallery`, 3 rutas, CORS `DELETE` | ⬜ falta probar con Nova real (cuotas de Bedrock a 0) |
 | 8 | Alojamiento del frontend (S3 + CloudFront) y WAF | No aplica | 🟡 S3 + CloudFront definidos, sin WAF | ⬜ |
-| 9 | Frontend | 🟡 historia de 5 pasos, moderación, ES/EN | No aplica | ⬜ |
+| 9 | Frontend | 🟡 historia de 5 pasos, moderación, ES/EN, galería y compartir/borrar (9.4) | No aplica | ⬜ |
 | 10 | Pulido, README y vídeo | ⬜ | ⬜ | ⬜ |
 
 **Despliegue:** la API se probó en `alarmaiot` (`eu-south-2`). El destino definitivo es `nightmare-prod` en `eu-west-3` (sección 7).
@@ -61,9 +61,10 @@ Las líneas discontinuas aún no existen.
 |---|---|
 | `handler.py` | Entrada de la Lambda. Enruta por `routeKey` y traduce errores a HTTP |
 | `story.py` | `start()` y `next_step()` |
+| `gallery.py` | `publish()`, `list_stories()` y `delete()` de la galería pública |
 | `ai.py` | `ask()`: llama a Nova y valida el JSON de respuesta |
 | `safety.py` | Clasificación de la entrada y comprobación de la salida |
-| `db.py` | Guardar, leer y borrar sesiones |
+| `db.py` | Guardar, leer y borrar sesiones e historias publicadas; listar la galería por el índice `gallery` |
 | `models.py` | Arco de 5 pasos, `Step`, `Session`, `Category`, `ApiError` |
 | `prompts.py` | Instrucciones que se envían a Nova |
 | `messages.py` | Textos y recursos de ayuda cuando se para la sesión |
@@ -87,7 +88,33 @@ flowchart TD
 
 `POST /sessions/{id}/steps`: carga la sesión, comprueba que la opción exista en el paso actual, genera el paso siguiente (el 5 con razonamiento extendido), lo pasa por el guardrail de salida y guarda. Si el guardrail bloquea, borra la sesión.
 
-### 4.3 Moderación (`safety.py`)
+### 4.3 Galería (`gallery.py`)
+
+Publicar es opcional y explícito: el frontend muestra una casilla de consentimiento y el body debe llevar `{"consent": true}`.
+
+```mermaid
+flowchart TD
+  P[POST /sessions/id/publish] --> C{consent = true?}
+  C -- No --> E0[400 consent]
+  C -- Sí --> S{Sesión terminada<br/>y no publicada?}
+  S -- No --> E1[404 / 409]
+  S -- Sí --> A[Nova reescribe los 5 pasos<br/>sin nombres, lugares, fechas...]
+  A --> V{Mismos pasos y campos?}
+  V -- No, tras reintento --> E2[502 generation_failed]
+  V -- Sí --> G{Guardrail de salida}
+  G -- Bloquea --> E3[422 not_publishable<br/>no se guarda nada]
+  G -- Pasa --> D[Guardar STORY#id con hash del token<br/>marcar la sesión como publicada]
+  D --> R[200 story_id + delete_token]
+```
+
+- **Qué se publica**: solo `title`, `narration`, `learning`, `coping_tip`, `has_image`, `image` (vacío hasta la tarea 5) y el idioma. Nunca el resumen, las opciones elegidas, los prompts de imagen ni el id de sesión.
+- **Anonimización**: una llamada a Nova (`prompts.ANONYMIZER_SYSTEM`, temperatura 0,2) cambia nombres, lugares, fechas, edades, oficios y otros datos por palabras genéricas. `parse_anonymized` rechaza la respuesta si cambia el número de pasos o sus números, si deja campos vacíos o si la narración pasa de 120 palabras.
+- **Token de borrado**: `secrets.token_urlsafe(32)` (256 bits). Se devuelve una sola vez. En DynamoDB solo se guarda `sha256(token)` y se compara con `hmac.compare_digest`. Al ser aleatorio, no hace falta un KDF lento.
+- **Borrar** (`DELETE /gallery/{id}`): el token va en la cabecera `x-delete-token`, no en la URL, para que no quede en logs de acceso. Un id desconocido y un token incorrecto dan la misma respuesta, `404 not_found`.
+- **Listar** (`GET /gallery?language=es&limit=6&cursor=...`): consulta el índice `gallery` de más nueva a más antigua y filtra las caducadas (DynamoDB borra por `ttl` con hasta ~48 h de retraso), así que una página puede traer menos de `limit`. `limit` va de 1 a 20 (6 por defecto). El cursor es el `LastEvaluatedKey` en base64url y solo se acepta si tiene exactamente `pk`, `gpk` y `gsk` del idioma pedido.
+- **Una vez por sesión**: `Session.published` evita publicar dos veces (`409 already_published`).
+
+### 4.4 Moderación (`safety.py`)
 
 1. Guardrail sobre la entrada. Si salta el tema `SelfHarm`, es `risk` sin más.
 2. Clasificador de Nova: `ok`, `not_serious`, `forbidden_content` o `risk`. `risk` siempre gana.
@@ -96,13 +123,18 @@ flowchart TD
 
 En una versión anterior se repetía la clasificación con razonamiento extendido antes de rechazar, y había una lista de palabras prohibidas para los prompts de imagen. Se quitaron por simplicidad. La lista se recuperará con las imágenes (tarea 5). Hay que comprobar con casos reales que no se rechazan pesadillas oscuras genuinas.
 
-### 4.4 Errores
+### 4.5 Errores
 
 | Situación | Respuesta |
 |---|---|
 | Idioma, longitud, opción o body inválidos | 400 con `{"error": código}` |
 | Sesión inexistente o caducada | 404 `session_not_found` |
 | Sesión ya terminada | 409 `session_finished` |
+| Publicar sin consentimiento | 400 `consent` |
+| `limit` o `cursor` inválidos en la galería | 400 `limit` / `cursor` |
+| Publicar una historia sin terminar o ya publicada | 409 `session_not_finished` / `already_published` |
+| El texto anonimizado no pasa el guardrail | 422 `not_publishable` |
+| Borrar con id o token incorrectos | 404 `not_found` |
 | El modelo no devuelve un JSON válido tras un reintento | 502 `generation_failed` |
 | Throttling de AWS | 429 `busy` |
 | Otro error de AWS | 503 `unavailable` |
@@ -110,11 +142,17 @@ En una versión anterior se repetía la clasificación con razonamiento extendid
 
 No se registran cuerpos de petición ni mensajes de excepción, porque pueden contener texto del usuario.
 
-### 4.5 Privacidad
+### 4.6 Privacidad
 
 - El texto original solo vive en memoria durante la petición. Se guarda un resumen anónimo generado por Nova.
 - Las sesiones caducan a las 24 h (campo `ttl`).
 - Solo un prompt de imagen saneado saldrá de la UE (futuro).
+- Nada es público por defecto. Publicar pide consentimiento explícito, pasa por la anonimización de Nova y por el guardrail de salida.
+- Las historias publicadas caducan a los 90 días (`GALLERY_TTL_DAYS`) o cuando la persona las borra con su enlace privado.
+- El token de borrado solo existe en la respuesta y en el enlace. El backend guarda su hash y el índice de la galería no lo proyecta.
+- El enlace de borrado usa el fragmento (`#/delete/<id>/<token>`), que el navegador no envía a CloudFront, y la API recibe el token en una cabecera. Tras borrar, el frontend quita el token de la barra de direcciones.
+- Los logs de la galería solo llevan el id de la historia y el número de pasos.
+- Limitación: la anonimización es automática y puede fallar. La interfaz avisa de que hay que leer la historia antes de compartirla; no hay vista previa del texto anonimizado.
 
 ## 5. Infraestructura (`infra/`)
 
@@ -123,15 +161,16 @@ No se registran cuerpos de petición ni mensajes de excepción, porque pueden co
 | Recurso | Cantidad | Para qué |
 |---|---|---|
 | Guardrail y su versión | 1 + 1 | Moderación |
-| Tabla DynamoDB | 1 | Sesiones, con TTL |
+| Tabla DynamoDB | 1 | Sesiones e historias publicadas, con TTL e índice `gallery` (`gpk`, `gsk`, proyección INCLUDE sin `token_hash`) |
 | Función Lambda | 1 | Toda la API |
-| HTTP API, etapa, 2 rutas | 1 | Entrada desde Internet |
+| HTTP API, etapa, 5 rutas | 1 | Entrada desde Internet: `POST /sessions`, `POST /sessions/{session_id}/steps`, `POST /sessions/{session_id}/publish`, `GET /gallery`, `DELETE /gallery/{story_id}` |
 
 Decisiones:
 - **ARM64, 512 MB, 29 s.** La HTTP API corta a los 30 s, y las llamadas a Bedrock tienen un límite de 20 s.
 - **Límite global**: 5 peticiones por segundo con picos de 10. El límite por IP llegará con WAF (tarea 8).
-- **CORS**: por defecto `http://localhost:4200`. Para otro origen: `cdk deploy -c allowedOrigins='["https://..."]'`.
-- **La tabla se borra con `cdk destroy`.** Solo guarda sesiones temporales.
+- **CORS**: por defecto `http://localhost:4200`. Para otro origen: `cdk deploy -c allowedOrigins='["https://..."]'`. Métodos `GET`, `POST` y `DELETE`; cabeceras `content-type` y `x-delete-token`.
+- **Variables de la galería**: `GALLERY_INDEX=gallery` y `GALLERY_TTL_DAYS=90` (constante en `nightmare_stack.py`; `0` = permanente).
+- **La tabla se borra con `cdk destroy`.** Guarda sesiones temporales y la galería, que también caduca.
 - **Tag** `application = nightmare` en toda la app (`infra/app.py`).
 
 ### 5.2 Permisos mínimos
@@ -140,7 +179,7 @@ Decisiones:
 |---|---|
 | `bedrock:InvokeModel` | El perfil `eu.amazon.nova-2-lite-v1:0` y el modelo en regiones `eu-*` |
 | `bedrock:ApplyGuardrail` | Solo nuestro guardrail |
-| DynamoDB lectura y escritura | Solo la tabla de sesiones |
+| DynamoDB lectura y escritura | Solo la tabla y su índice `gallery` (`grant_read_write_data`) |
 
 Como el permiso de Nova solo incluye regiones europeas, AWS rechazaría procesar el texto fuera de Europa.
 
@@ -177,13 +216,14 @@ Todo es de pago por uso. Cada historia consume unas 6 llamadas a Nova 2 Lite (cl
 
 | Archivo | Qué comprueba | ¿Llama a AWS? |
 |---|---|---|
-| `backend/tests/test_app.py` | Validación de `Step`, paradas de moderación, historia de 5 pasos, rutas y errores HTTP, que un paso inseguro borra la sesión | No (fakes) |
-| `infra/tests/test_stack.py` | Una Lambda, rutas, TTL de la tabla, permisos de Bedrock, tema `SelfHarm`, CORS | No |
-| `backend/tests/test_properties.py` | Tests basados en propiedades (Hypothesis): invariantes del arco de 5 pasos, límites de `Step`, ida y vuelta JSON de `Session`, recursos de ayuda solo en `risk` | No |
+| `backend/tests/test_app.py` | Validación de `Step`, paradas de moderación, historia de 5 pasos, rutas y errores HTTP, que un paso inseguro borra la sesión. Galería: consentimiento, historia sin terminar, texto inseguro no se publica, una sola publicación, solo campos permitidos y hash del token, borrado con token correcto e incorrecto, orden y paginación, caducadas ocultas, flujo completo por el handler y una tabla falsa para `db.put_story`/`query_stories` | No (fakes) |
+| `infra/tests/test_stack.py` | Una Lambda, las 5 rutas, TTL de la tabla, índice `gallery` sin `token_hash`, variables de la galería, permisos de Bedrock, tema `SelfHarm`, CORS con `DELETE` y `x-delete-token` | No |
+| `backend/tests/test_properties.py` | Tests basados en propiedades (Hypothesis): invariantes del arco de 5 pasos, límites de `Step`, ida y vuelta JSON de `Session`, recursos de ayuda solo en `risk`; cursor de la galería (ida y vuelta, basura, otro idioma), validación de la anonimización y hash del token | No |
 | `infra/tests/test_frontend_stack.py` | Bucket privado con OAC, CloudFront con HTTPS, CORS de la API con el dominio de CloudFront | No |
 | `frontend/src/app/app.spec.ts` | Formulario, primer paso, elección, parada por riesgo con recursos, errores y reintento | No (HTTP simulado) |
+| `frontend/src/app/gallery.spec.ts` | Compartir con consentimiento y enlace de borrado, error `not_publishable`, galería con "cargar más" y estado vacío, enlace de borrado que pide confirmación y envía `x-delete-token`, historia no encontrada | No (HTTP simulado) |
 
-Resultado actual: 23 tests de backend (8 de propiedades), 6 de infra y 5 de frontend pasan, y `cdk synth` termina sin errores.
+Resultado actual: 41 tests de backend (14 de propiedades), 9 de infra y 11 de frontend pasan, `ruff check` y `ruff format --check` están limpios, y `cdk synth` termina sin errores.
 
 ```powershell
 cd backend; .\.venv\Scripts\python.exe -m pytest -q
@@ -253,6 +293,11 @@ Después del despliegue:
 | Concurrencia | Sin bloqueo optimista | Un doble clic en un hackatón no justifica la complejidad |
 | Prompts | Instrucciones en inglés, respuesta en el idioma del usuario | Un solo juego que mantener |
 | Angular | Versión 21 | Angular 22 exige Node 22.22.3 y hay 22.22.2 |
+| Galería: duración | 90 días, configurable con `GALLERY_TTL_DAYS` (`0` = permanente) | Limita el riesgo si la anonimización deja pasar algo y dura lo bastante para la evaluación del hackatón. Pasar a permanente no exige tocar código |
+| Galería: anonimización | Una pasada de Nova que reescribe los pasos, validada en código, y después el guardrail de salida | Detecta nombres y lugares en contexto, cosa que no hace una regex. Una política PII en el guardrail compartido afectaría también a la historia |
+| Galería: datos | Misma tabla con item `STORY#<id>` y un GSI | Añadir una clave de ordenación obligaría a reemplazar la tabla |
+| Galería: token | Aleatorio de 256 bits, se guarda su SHA-256; viaja en cabecera y en el fragmento de la URL | No se puede recuperar desde la base de datos y no queda en logs de acceso |
+| Frontend: vistas | Vistas por hash (`#/gallery`, `#/delete/...`) con un servicio `Nav`, sin `@angular/router` | Tres vistas no justifican un router; el fragmento no se envía al servidor |
 
 ## 9. Pendiente
 
@@ -265,7 +310,12 @@ Después del despliegue:
 - [ ] Revisar las 16 vulnerabilidades moderadas que avisa `npm install` en `frontend/`.
 - [ ] Antes de la tarea 5: la cuota de Stable Image Core en `us-west-2` está a 0 en `nightmare-prod` (pedir aumento o elegir otra región de imágenes).
 
-**Tareas del spec sin empezar**: 5 imágenes, 6 voz, 7 galería, 8 WAF y 10 pulido. El frontend (9) tiene la primera versión.
+**Galería**
+- [ ] Probar publicar, listar y borrar contra la API real cuando vuelvan las cuotas de Bedrock (la anonimización llama a Nova).
+- [ ] Limitación conocida: si la respuesta de publicar se pierde, el token no se puede volver a emitir y la sesión ya figura como publicada (la historia caduca a los 90 días).
+- [ ] Con la tarea 5: rellenar `image` de los pasos publicados con la ruta de CloudFront; la galería ya pinta `<img>` cuando existe.
+
+**Tareas del spec sin empezar**: 5 imágenes, 6 voz, 8 WAF y 10 pulido. El frontend (9) tiene la historia y la galería (9.4).
 
 ## 10. Glosario
 

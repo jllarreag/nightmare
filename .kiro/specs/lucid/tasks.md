@@ -34,9 +34,9 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
 - [ ] 6. Voice
   - [ ] 6.1 Ruta `speak` con Polly (es-ES / en) y caché en S3
   - _Requirements: 5.1_
-- [ ] 7. Gallery
-  - [ ] 7.1 Anonimizar, volver a moderar y publicar; token de borrado
-  - [ ] 7.2 Listado paginado
+- [x] 7. Gallery
+  - [x] 7.1 Anonimizar, volver a moderar y publicar; token de borrado
+  - [x] 7.2 Listado paginado
   - _Requirements: 6.1-6.5_
 - [ ] 8. Infrastructure
   - [ ] 8.1 S3 y CloudFront
@@ -47,7 +47,7 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
   - [ ] 9.1 Home con disclaimer, selector de idioma, entrada y validación
   - [ ] 9.2 Vista de la historia: paso, opciones, imagen, estados de carga
   - [ ] 9.3 Reproductor de audio con subtítulos y controles
-  - [ ] 9.4 Galería y flujo de compartir/borrar
+  - [x] 9.4 Galería y flujo de compartir/borrar
   - [ ] 9.5 Tema oscuro atmosférico, reduced-motion, accesibilidad
   - _Requirements: 1.1, 3.2, 5.2, 5.3, 6.5_
 - [ ] 10. Hooks and polish
