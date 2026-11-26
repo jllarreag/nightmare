@@ -50,6 +50,44 @@ export type ErrorKey =
   | 'nightmare_length'
   | 'session_not_found'
   | 'session_finished'
+  | 'session_not_finished'
+  | 'already_published'
+  | 'not_publishable'
+  | 'not_found'
+  | 'consent'
   | 'network'
   | 'config'
   | 'generic';
+
+/** POST /sessions/{id}/publish. The token is shown once and never stored by the backend. */
+export interface PublishResponse {
+  status: 'ok';
+  story_id: string;
+  delete_token: string;
+  expires_at: number | null;
+}
+
+/** A published step: anonymized text only. `image` is filled once images exist (task 5). */
+export interface GalleryStep {
+  step: number;
+  title: string;
+  narration: string;
+  learning: string | null;
+  coping_tip: string | null;
+  has_image: boolean;
+  image: string | null;
+}
+
+export interface GalleryStory {
+  id: string;
+  language: Lang;
+  created_at: number;
+  steps: GalleryStep[];
+}
+
+export interface GalleryPage {
+  stories: GalleryStory[];
+  next_cursor: string | null;
+}
+
+export const GALLERY_PAGE_SIZE = 6;

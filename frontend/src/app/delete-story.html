@@ -1,0 +1,21 @@
+<section class="card" aria-labelledby="delete-title">
+  <h1 #heading id="delete-title" tabindex="-1">{{ i18n.t('deleteTitle') }}</h1>
+  @if (done()) {
+    <p class="lead" role="status">{{ i18n.t('deleteDone') }}</p>
+  } @else {
+    @if (error() !== 'not_found') {
+      <p class="lead">{{ i18n.t('deleteExplain') }}</p>
+    }
+    @if (error(); as err) {
+      <div class="alert" role="alert">
+        <p>{{ i18n.error(err) }}</p>
+      </div>
+    }
+    @if (error() !== 'not_found') {
+      <button type="button" class="btn primary" [disabled]="busy()" (click)="confirm()">
+        {{ busy() ? i18n.t('deleting') : i18n.t('deleteButton') }}
+      </button>
+    }
+  }
+  <p class="after-actions"><a href="#/gallery">{{ i18n.t('goGallery') }}</a></p>
+</section>

@@ -51,6 +51,9 @@
     </div>
   } @else {
     <p class="finished">{{ i18n.t('finished') }}</p>
+    @if (finished()) {
+      <app-share-panel />
+    }
     <button type="button" class="btn primary" (click)="store.reset()">
       {{ i18n.t('restart') }}
     </button>

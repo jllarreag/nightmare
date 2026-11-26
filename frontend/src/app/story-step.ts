@@ -1,10 +1,12 @@
 import { afterRenderEffect, Component, ElementRef, inject, input, viewChild } from '@angular/core';
 import { Step, TOTAL_STEPS } from './api';
 import { I18n } from './i18n';
+import { SharePanel } from './share-panel';
 import { StoryStore } from './story-store';
 
 @Component({
   selector: 'app-story-step',
+  imports: [SharePanel],
   templateUrl: './story-step.html',
 })
 export class StoryStep {

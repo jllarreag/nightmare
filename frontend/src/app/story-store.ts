@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { ApiResponse, ErrorKey, Step, StoppedResponse } from './api';
+import { ApiResponse, ErrorKey, PublishResponse, Step, StoppedResponse } from './api';
 import { ConfigService } from './config';
 import { I18n } from './i18n';
 
@@ -13,12 +13,24 @@ const KNOWN_ERRORS: readonly ErrorKey[] = [
   'nightmare_length',
   'session_not_found',
   'session_finished',
+  'session_not_finished',
+  'already_published',
+  'not_publishable',
+  'not_found',
+  'consent',
 ];
 
 /** Errors after which retrying the same call makes no sense. */
-const FINAL_ERRORS: readonly ErrorKey[] = ['session_not_found', 'session_finished', 'config'];
+const FINAL_ERRORS: readonly ErrorKey[] = [
+  'session_not_found',
+  'session_finished',
+  'session_not_finished',
+  'already_published',
+  'not_publishable',
+  'config',
+];
 
-function toErrorKey(error: unknown): ErrorKey {
+export function toErrorKey(error: unknown): ErrorKey {
   if (error instanceof HttpErrorResponse) {
     if (error.status === 0) return 'network';
     const code = (error.error as { error?: unknown } | null)?.error;
@@ -27,6 +39,13 @@ function toErrorKey(error: unknown): ErrorKey {
     }
   }
   return 'generic';
+}
+
+/** Result of publishing: the deletion link lives in memory only, never in storage. */
+export interface Published {
+  storyId: string;
+  token: string;
+  link: string;
 }
 
 /** State of the current story. One session at a time, nothing persisted in the browser. */
@@ -43,6 +62,8 @@ export class StoryStore {
   readonly loading = signal(false);
   readonly error = signal<ErrorKey | null>(null);
   readonly stop = signal<StoppedResponse | null>(null);
+  readonly publishing = signal(false);
+  readonly published = signal<Published | null>(null);
   /** Last raw response or error, shown in the debug panel (?debug). */
   readonly lastResponse = signal<unknown>(null);
 
@@ -65,6 +86,13 @@ export class StoryStore {
     return this.run(() => this.send(`/sessions/${encodeURIComponent(id)}/steps`, { choice_id: choiceId }));
   }
 
+  /** Opt-in: publishes the finished story anonymized and returns a private deletion link. */
+  publish(): Promise<void> {
+    const id = this.sessionId;
+    if (!id || this.publishing() || this.published()) return Promise.resolve();
+    return this.run(() => this.sendPublish(id));
+  }
+
   retry(): Promise<void> {
     return this.lastCall ? this.run(this.lastCall) : Promise.resolve();
   }
@@ -75,6 +103,7 @@ export class StoryStore {
     this.finished.set(false);
     this.error.set(null);
     this.stop.set(null);
+    this.published.set(null);
     this.sessionId = null;
     this.lastCall = null;
   }
@@ -82,6 +111,30 @@ export class StoryStore {
   private async run(call: () => Promise<void>): Promise<void> {
     this.lastCall = call;
     await call();
+  }
+
+  private async sendPublish(id: string): Promise<void> {
+    if (!this.config.apiUrl) {
+      this.error.set('config');
+      return;
+    }
+    this.publishing.set(true);
+    this.error.set(null);
+    try {
+      const res = await firstValueFrom(
+        this.http.post<PublishResponse>(
+          `${this.config.apiUrl}/sessions/${encodeURIComponent(id)}/publish`,
+          { consent: true },
+        ),
+      );
+      this.lastCall = null;
+      const link = `${location.origin}${location.pathname}#/delete/${res.story_id}/${res.delete_token}`;
+      this.published.set({ storyId: res.story_id, token: res.delete_token, link });
+    } catch (error) {
+      this.error.set(toErrorKey(error));
+    } finally {
+      this.publishing.set(false);
+    }
   }
 
   private async send(path: string, body: object): Promise<void> {

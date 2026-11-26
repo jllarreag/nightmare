@@ -1,0 +1,33 @@
+<section class="share" aria-labelledby="share-title">
+  @if (store.published(); as published) {
+    <h2 #doneHeading id="share-title" tabindex="-1">{{ i18n.t('shareDoneTitle') }}</h2>
+    <label class="field-label" for="delete-link">{{ i18n.t('shareLinkLabel') }}</label>
+    <div class="link-row">
+      <input #linkInput id="delete-link" class="link-input" type="text" readonly [value]="published.link" />
+      <button type="button" class="btn" (click)="copy(published.link)">{{ i18n.t('copyLink') }}</button>
+    </div>
+    <p class="sr-only" aria-live="polite">{{ copied() ? i18n.t('copied') : '' }}</p>
+    @if (copied()) {
+      <p class="hint" aria-hidden="true">{{ i18n.t('copied') }}</p>
+    }
+    <p class="share-warning">{{ i18n.t('shareLinkWarning') }}</p>
+    <p class="hint">{{ i18n.t('shareRetention') }}</p>
+  } @else {
+    <h2 id="share-title">{{ i18n.t('shareTitle') }}</h2>
+    <p>{{ i18n.t('shareIntro') }}</p>
+    <p class="hint">{{ i18n.t('shareWarning') }}</p>
+    <p class="hint">{{ i18n.t('shareRetention') }}</p>
+    <label class="consent">
+      <input type="checkbox" [checked]="consent()" (change)="onConsent($event)" />
+      <span>{{ i18n.t('shareConsent') }}</span>
+    </label>
+    <button
+      type="button"
+      class="btn"
+      [disabled]="!consent() || store.publishing()"
+      (click)="share()"
+    >
+      {{ store.publishing() ? i18n.t('sharing') : i18n.t('shareButton') }}
+    </button>
+  }
+</section>

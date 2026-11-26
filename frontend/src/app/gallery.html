@@ -1,0 +1,64 @@
+<section aria-labelledby="gallery-title">
+  <h1 #heading id="gallery-title" tabindex="-1">{{ i18n.t('galleryTitle') }}</h1>
+  <p class="lead">{{ i18n.t('galleryIntro') }}</p>
+
+  @for (story of gallery.stories(); track story.id) {
+    <article class="card gallery-card" [attr.lang]="story.language">
+      <header class="gallery-head">
+        <span class="badge" [attr.title]="i18n.t('galleryLangBadge')">{{
+          story.language.toUpperCase()
+        }}</span>
+        <time [attr.datetime]="iso(story.created_at)">{{ date(story.created_at) }}</time>
+      </header>
+      <h2>{{ story.steps[0].title }}</h2>
+      <p class="excerpt">{{ story.steps[0].narration }}</p>
+      <details class="story-details">
+        <summary>{{ i18n.t('galleryRead') }}</summary>
+        @for (step of story.steps; track step.step) {
+          <section class="gallery-step">
+            <h3>{{ step.title }}</h3>
+            @if (step.image) {
+              <img class="gallery-image" [src]="step.image" [alt]="i18n.t('galleryImageAlt')" />
+            } @else if (step.has_image) {
+              <div class="illustration neutral" aria-hidden="true"></div>
+            }
+            <p class="narration">{{ step.narration }}</p>
+            @if (step.learning) {
+              <p class="takeaway">{{ step.learning }}</p>
+            }
+            @if (step.coping_tip) {
+              <p class="takeaway tip">{{ step.coping_tip }}</p>
+            }
+          </section>
+        }
+      </details>
+    </article>
+  }
+
+  @if (gallery.loading()) {
+    <div class="loader" aria-hidden="true">
+      <span class="loader-orb"></span>
+      <span>{{ i18n.t('loading') }}</span>
+    </div>
+    <p class="sr-only" aria-live="polite">{{ i18n.t('loading') }}</p>
+  }
+
+  @if (gallery.loaded() && !gallery.stories().length && !gallery.error()) {
+    <p class="card empty">{{ i18n.t('galleryEmpty') }}</p>
+  }
+
+  @if (gallery.error(); as error) {
+    <div class="alert" role="alert">
+      <p>{{ i18n.error(error) }}</p>
+      <button type="button" class="btn" (click)="gallery.load(!gallery.stories().length)">
+        {{ i18n.t('retry') }}
+      </button>
+    </div>
+  }
+
+  @if (gallery.nextCursor() && !gallery.loading()) {
+    <button type="button" class="btn load-more" (click)="gallery.load(false)">
+      {{ i18n.t('galleryLoadMore') }}
+    </button>
+  }
+</section>

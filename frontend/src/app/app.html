@@ -4,11 +4,19 @@
 
 <header class="site-header">
   <p class="brand"><span class="moon" aria-hidden="true"></span>{{ i18n.t('appName') }}</p>
+  <nav class="site-nav" [attr.aria-label]="i18n.t('navLabel')">
+    <a href="#/" [attr.aria-current]="nav.view() === 'home' ? 'page' : null">{{
+      i18n.t('navHome')
+    }}</a>
+    <a href="#/gallery" [attr.aria-current]="nav.view() === 'gallery' ? 'page' : null">{{
+      i18n.t('navGallery')
+    }}</a>
+  </nav>
   <div
     class="lang"
     role="group"
     [attr.aria-label]="i18n.t('language')"
-    [attr.title]="store.phase() === 'intro' ? null : i18n.t('languageLocked')"
+    [attr.title]="languageLocked() ? i18n.t('languageLocked') : null"
   >
     @for (lang of langs; track lang) {
       <button
@@ -16,7 +24,7 @@
         class="lang-btn"
         [attr.lang]="lang"
         [attr.aria-pressed]="i18n.lang() === lang"
-        [disabled]="store.phase() !== 'intro' || store.loading()"
+        [disabled]="languageLocked() || store.loading()"
         (click)="i18n.setLang(lang)"
       >
         {{ lang.toUpperCase() }}
@@ -26,23 +34,33 @@
 </header>
 
 <main id="main" class="container" [attr.aria-busy]="store.loading()">
-  @switch (store.phase()) {
-    @case ('intro') {
-      <app-nightmare-form />
+  @switch (nav.view()) {
+    @case ('gallery') {
+      <app-gallery />
     }
-    @case ('story') {
-      @if (store.current(); as step) {
-        <app-story-step [step]="step" [finished]="store.finished()" />
-      }
+    @case ('delete') {
+      <app-delete-story />
     }
-    @case ('stopped') {
-      @if (store.stop(); as stop) {
-        <app-stop-notice [stop]="stop" />
+    @default {
+      @switch (store.phase()) {
+        @case ('intro') {
+          <app-nightmare-form />
+        }
+        @case ('story') {
+          @if (store.current(); as step) {
+            <app-story-step [step]="step" [finished]="store.finished()" />
+          }
+        }
+        @case ('stopped') {
+          @if (store.stop(); as stop) {
+            <app-stop-notice [stop]="stop" />
+          }
+        }
       }
     }
   }
 
-  @if (store.loading()) {
+  @if (store.loading() && nav.view() === 'home') {
     <div class="loader" aria-hidden="true">
       <span class="loader-orb"></span>
       <span>{{ i18n.t('loading') }}</span>
@@ -50,7 +68,7 @@
   }
   <p class="sr-only" aria-live="polite">{{ store.loading() ? i18n.t('loading') : '' }}</p>
 
-  @if (store.error(); as error) {
+  @if (nav.view() === 'home' && store.error(); as error) {
     <div class="alert" role="alert">
       <p>{{ i18n.error(error) }}</p>
       <div class="alert-actions">
