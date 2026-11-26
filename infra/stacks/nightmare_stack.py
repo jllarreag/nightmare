@@ -2,6 +2,9 @@
 
     POST /sessions                      -> empieza una sesión (pesadilla -> paso 1)
     POST /sessions/{session_id}/steps   -> avanza (elección -> siguiente paso)
+    POST /sessions/{session_id}/publish -> publica la historia terminada (opt-in)
+    GET /gallery                        -> galería pública paginada
+    DELETE /gallery/{story_id}          -> borra una historia (cabecera x-delete-token)
 """
 from pathlib import Path
 
@@ -24,6 +27,8 @@ NOVA_MODEL = "amazon.nova-2-lite-v1:0"
 # Orígenes que pueden llamar a la API desde el navegador. app.py pasa el dominio de CloudFront;
 # `cdk deploy -c allowedOrigins=...` tiene prioridad.
 DEFAULT_ALLOWED_ORIGINS = ["http://localhost:4200"]
+# Días que vive una historia publicada en la galería (0 = sin caducidad).
+GALLERY_TTL_DAYS = 90
 
 
 class NightmareStack(Stack):
@@ -48,6 +53,16 @@ class NightmareStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,  # hackatón: `cdk destroy` lo borra todo
         )
 
+        # Índice de la galería: las historias publicadas (pk STORY#<id>) se listan por idioma,
+        # las más nuevas primero. No proyecta token_hash: listar nunca puede devolver el hash.
+        table.add_global_secondary_index(
+            index_name="gallery",
+            partition_key=dynamodb.Attribute(name="gpk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="gsk", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.INCLUDE,
+            non_key_attributes=["id", "language", "created_at", "story", "ttl"],
+        )
+
         # El código es solo Python + boto3 (ya incluido en Lambda): se sube la carpeta tal cual.
         function = lambda_.Function(
             self,
@@ -66,6 +81,8 @@ class NightmareStack(Stack):
                 "GUARDRAIL_ID": guardrail.guardrail_id,
                 "GUARDRAIL_VERSION": guardrail.version,
                 "SESSIONS_TABLE": table.table_name,
+                "GALLERY_INDEX": "gallery",
+                "GALLERY_TTL_DAYS": str(GALLERY_TTL_DAYS),
             },
         )
         table.grant_read_write_data(function)
@@ -94,8 +111,12 @@ class NightmareStack(Stack):
                 allow_origins=self.node.try_get_context("allowedOrigins")
                 or allowed_origins
                 or DEFAULT_ALLOWED_ORIGINS,
-                allow_methods=[apigw.CorsHttpMethod.POST],
-                allow_headers=["content-type"],
+                allow_methods=[
+                    apigw.CorsHttpMethod.GET,
+                    apigw.CorsHttpMethod.POST,
+                    apigw.CorsHttpMethod.DELETE,
+                ],
+                allow_headers=["content-type", "x-delete-token"],
             ),
         )
         apigw.HttpStage(
@@ -107,7 +128,14 @@ class NightmareStack(Stack):
             throttle=apigw.ThrottleSettings(rate_limit=5, burst_limit=10),  # tope global de coste
         )
         integration = integrations.HttpLambdaIntegration("Lambda", function)
-        for path in ("/sessions", "/sessions/{session_id}/steps"):
-            api.add_routes(path=path, methods=[apigw.HttpMethod.POST], integration=integration)
+        routes = [
+            ("/sessions", apigw.HttpMethod.POST),
+            ("/sessions/{session_id}/steps", apigw.HttpMethod.POST),
+            ("/sessions/{session_id}/publish", apigw.HttpMethod.POST),
+            ("/gallery", apigw.HttpMethod.GET),
+            ("/gallery/{story_id}", apigw.HttpMethod.DELETE),
+        ]
+        for path, method in routes:
+            api.add_routes(path=path, methods=[method], integration=integration)
 
         CfnOutput(self, "ApiUrl", value=api.api_endpoint)
