@@ -179,10 +179,11 @@ Todo es de pago por uso. Cada historia consume unas 6 llamadas a Nova 2 Lite (cl
 |---|---|---|
 | `backend/tests/test_app.py` | Validación de `Step`, paradas de moderación, historia de 5 pasos, rutas y errores HTTP, que un paso inseguro borra la sesión | No (fakes) |
 | `infra/tests/test_stack.py` | Una Lambda, rutas, TTL de la tabla, permisos de Bedrock, tema `SelfHarm`, CORS | No |
+| `backend/tests/test_properties.py` | Tests basados en propiedades (Hypothesis): invariantes del arco de 5 pasos, límites de `Step`, ida y vuelta JSON de `Session`, recursos de ayuda solo en `risk` | No |
 | `infra/tests/test_frontend_stack.py` | Bucket privado con OAC, CloudFront con HTTPS, CORS de la API con el dominio de CloudFront | No |
 | `frontend/src/app/app.spec.ts` | Formulario, primer paso, elección, parada por riesgo con recursos, errores y reintento | No (HTTP simulado) |
 
-Resultado actual: 15 tests de backend, 6 de infra y 5 de frontend pasan, y `cdk synth` termina sin errores.
+Resultado actual: 23 tests de backend (8 de propiedades), 6 de infra y 5 de frontend pasan, y `cdk synth` termina sin errores.
 
 ```powershell
 cd backend; .\.venv\Scripts\python.exe -m pytest -q
