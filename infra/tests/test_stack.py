@@ -7,7 +7,7 @@ from stacks.nightmare_stack import NightmareStack
 def synth(**context) -> Template:
     app = cdk.App(context=context)
     stack = NightmareStack(
-        app, "Test", env=cdk.Environment(account="123456789012", region="eu-south-2")
+        app, "Test", env=cdk.Environment(account="123456789012", region="eu-west-3")
     )
     return Template.from_stack(stack)
 

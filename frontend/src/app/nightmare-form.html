@@ -1,0 +1,28 @@
+<section class="card intro">
+  <h1>{{ i18n.t('tagline') }}</h1>
+  <p class="lead">{{ i18n.t('intro') }}</p>
+
+  <form (submit)="submit($event)" novalidate>
+    <label for="nightmare">{{ i18n.t('formLabel') }}</label>
+    <p id="nightmare-hint" class="hint">{{ i18n.t('formHint') }}</p>
+    <textarea
+      id="nightmare"
+      name="nightmare"
+      rows="7"
+      [attr.maxlength]="max"
+      [value]="text()"
+      [placeholder]="i18n.t('placeholder')"
+      [disabled]="store.loading()"
+      aria-describedby="nightmare-hint nightmare-count"
+      (input)="onInput($event)"
+    ></textarea>
+    <p id="nightmare-count" class="count" [class.ok]="valid()">
+      {{ length() }} / {{ max }} {{ i18n.t('chars') }}
+    </p>
+    <button type="submit" class="btn primary" [disabled]="!valid() || store.loading()">
+      {{ i18n.t('start') }}
+    </button>
+  </form>
+
+  <p class="privacy">{{ i18n.t('privacy') }}</p>
+</section>

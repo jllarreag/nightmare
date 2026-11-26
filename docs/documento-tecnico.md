@@ -15,11 +15,11 @@ Leyenda: ✅ hecho y probado con tests · 🟡 programado, falta desplegar o pro
 | 5 | Imágenes (Stability) | ⬜ | ⬜ | ⬜ |
 | 6 | Voz (Polly) | ⬜ | ⬜ | ⬜ |
 | 7 | Galería pública | ⬜ | ⬜ | ⬜ |
-| 8 | Alojamiento del frontend y WAF | No aplica | ⬜ | ⬜ |
-| 9 | Frontend | ⬜ (proyecto vacío) | No aplica | ⬜ |
+| 8 | Alojamiento del frontend (S3 + CloudFront) y WAF | No aplica | 🟡 S3 + CloudFront definidos, sin WAF | ⬜ |
+| 9 | Frontend | 🟡 historia de 5 pasos, moderación, ES/EN | No aplica | ⬜ |
 | 10 | Pulido, README y vídeo | ⬜ | ⬜ | ⬜ |
 
-**Hoy no hay nada desplegado en AWS.**
+**Despliegue:** la API se probó en `alarmaiot` (`eu-south-2`). El destino definitivo es `nightmare-prod` en `eu-west-3` (sección 7).
 
 ## 2. Visión general
 
@@ -34,7 +34,7 @@ flowchart LR
   U[Navegador] --> FE[Frontend Angular]
   FE -->|HTTPS| API[HTTP API]
   API --> L[Lambda única]
-  L -->|texto| NOVA[Nova 2 Lite<br/>eu-south-2]
+  L -->|texto| NOVA[Nova 2 Lite<br/>eu-west-3]
   L -->|moderación| GR[Guardrail]
   L --> DB[(DynamoDB)]
   L -.->|futuro: prompt saneado| IMG[Stability<br/>us-west-2]
@@ -165,7 +165,8 @@ La Lambda se sube con `Code.from_asset("backend/src")`. No hay `pip install` ni 
 
 | Región | Uso |
 |---|---|
-| `eu-south-2` (España) | Todo: Nova, guardrail, tabla, Lambda y API |
+| `eu-west-3` (París) | Todo: Nova, guardrail, tabla, Lambda, API y bucket de la web |
+| Global | CloudFront (sirve la web; la API se llama directamente en `eu-west-3`) |
 | `us-west-2` (Oregón) | Solo imágenes (futuro). Nova Canvas dejó de existir el 30/09/2026 |
 
 ### 5.6 Coste
@@ -178,13 +179,16 @@ Todo es de pago por uso. Cada historia consume unas 6 llamadas a Nova 2 Lite (cl
 |---|---|---|
 | `backend/tests/test_app.py` | Validación de `Step`, paradas de moderación, historia de 5 pasos, rutas y errores HTTP, que un paso inseguro borra la sesión | No (fakes) |
 | `infra/tests/test_stack.py` | Una Lambda, rutas, TTL de la tabla, permisos de Bedrock, tema `SelfHarm`, CORS | No |
+| `infra/tests/test_frontend_stack.py` | Bucket privado con OAC, CloudFront con HTTPS, CORS de la API con el dominio de CloudFront | No |
+| `frontend/src/app/app.spec.ts` | Formulario, primer paso, elección, parada por riesgo con recursos, errores y reintento | No (HTTP simulado) |
 
-Resultado actual: 15 tests de backend y 4 de infra pasan, y `cdk synth` termina sin errores.
+Resultado actual: 15 tests de backend, 6 de infra y 5 de frontend pasan, y `cdk synth` termina sin errores.
 
 ```powershell
 cd backend; .\.venv\Scripts\python.exe -m pytest -q
 cd ..\infra; .\.venv\Scripts\python.exe -m pytest -q
-$env:CDK_DEFAULT_REGION="eu-south-2"; npx aws-cdk@2.1148.1 synth
+$env:CDK_DEFAULT_REGION="eu-west-3"; npx aws-cdk@2.1148.1 synth
+cd ..\frontend; npx ng test --watch=false
 ```
 
 Automatismos:
@@ -197,43 +201,36 @@ Pendiente: un corpus de entradas para evaluar el clasificador contra Nova real. 
 
 ### 7.1 Destino
 
-Cuenta **`alarmaiot` (`670322849643`)**, con acceso por SSO. El código no depende de ninguna cuenta: CDK usa la del perfil con el que se despliega.
+Cuenta **`nightmare-prod` (`639589055085`)**, creada para la app en la OU `nightmare` con `scripts/org-accounts.bat`. Región **`eu-west-3` (París)**. El código no depende de ninguna cuenta: CDK usa la del perfil con el que se despliega.
 
 | Dato | Valor |
 |---|---|
 | Página SSO | `https://d-9067f1fd59.awsapps.com/start` |
 | Región de IAM Identity Center | `us-east-1` |
-| Usuario | `jllarreag2022` (grupo `administrators`, `AdministratorAccess`, sesiones de 1 h) |
-| Perfil | `nightmare-alarmaiot` (región `eu-south-2`) |
+| Usuario | `jllarreag2022` (`AdministratorAccess`) |
+| Perfil | `nightmare-prod` (región `eu-west-3`) |
+| Perfil de la cuenta de gestión | `jllarreag-2` (SSO) |
 
 Para renovar la sesión: `aws sso login --sso-session jllarreag-sso`.
 
-### 7.2 Problema abierto: `eu-south-2` está desactivada en `alarmaiot`
+### 7.2 Por qué París y no España
 
-Cualquier llamada en esa región responde "token inválido". Hay dos opciones, pendientes de decidir:
-
-| Opción | Qué implica |
-|---|---|
-| Activar `eu-south-2` | Cambio en la cuenta, tarda de minutos a horas. Se mantiene España como región base |
-| Desplegar en `eu-west-3` (París) | Ya está activa. El perfil `eu.` funciona igual y los datos siguen en Europa. Basta `CDK_DEFAULT_REGION=eu-west-3` |
-
-```powershell
-aws account enable-region --region-name eu-south-2 --profile nightmare-alarmaiot --region us-east-1
-aws account get-region-opt-status --region-name eu-south-2 --profile nightmare-alarmaiot --region us-east-1
-```
+En `nightmare-prod`, todas las cuotas de Bedrock en `eu-south-2` aparecían a 0 (también un día después), mientras que en `eu-west-3` tienen los valores por defecto (2000 peticiones/min y 8 M tokens/min para Nova 2 Lite). El perfil `eu.` funciona igual y los datos siguen en la UE. Mientras tanto se probó la API en `alarmaiot` (`eu-south-2`), que se destruye tras migrar.
 
 ### 7.3 Pasos
 
 ```powershell
 aws sso login --sso-session jllarreag-sso
-aws sts get-caller-identity --profile nightmare-alarmaiot
+aws sts get-caller-identity --profile nightmare-prod
 cd infra
 .\.venv\Scripts\Activate.ps1
-npx aws-cdk@2.1148.1 bootstrap aws://670322849643/eu-south-2 --profile nightmare-alarmaiot --tags application=nightmare   # una vez
-npx aws-cdk@2.1148.1 deploy --profile nightmare-alarmaiot
+npx aws-cdk@2.1148.1 bootstrap aws://639589055085/eu-west-3 --profile nightmare-prod --tags application=nightmare   # una vez
+npx aws-cdk@2.1148.1 deploy --all --profile nightmare-prod
+cd ..
+scripts\deploy-frontend.bat nightmare-prod
 ```
 
-Al terminar, CDK muestra `ApiUrl`. Para borrar todo: `npx aws-cdk@2.1148.1 destroy --profile nightmare-alarmaiot`.
+`deploy --all` crea `NightmareResolverWeb` (S3 + CloudFront) y `NightmareResolver` (API). El script del frontend compila la app, escribe `config.json` con la URL de la API, sube los ficheros y muestra la URL de CloudFront (añade `?debug` para ver las respuestas de la API). Para borrar todo: `npx aws-cdk@2.1148.1 destroy --all --profile nightmare-prod`.
 
 Después del despliegue:
 - Recorrer una historia completa llamando a la API real.
@@ -246,7 +243,9 @@ Después del despliegue:
 |---|---|---|
 | Simplicidad | Una Lambda, funciones sueltas, sin inyección de dependencias | Es un hackatón: el código debe poder leerse de un tirón |
 | Validación | `dataclasses` y `Step.from_dict`, sin pydantic | Sin dependencias, sin Docker, despliegue más simple |
-| Modelo de texto | Nova 2 Lite | Barato, disponible en España, razonamiento opcional |
+| Modelo de texto | Nova 2 Lite | Barato, disponible en la UE, razonamiento opcional |
+| Región | `eu-west-3` (París) | Cuotas de Bedrock disponibles en la cuenta nueva (7.2) |
+| Web | S3 privado + CloudFront; la API se llama directamente | El texto de la pesadilla va del navegador a `eu-west-3` sin pasar por CloudFront |
 | Modelo de imagen | Stable Image Core en `us-west-2` | Nova Canvas ya no existe |
 | Imágenes | 2 (paso 1 y paso 4) | Coste, rapidez y contraste entre pesadilla y nuevo final |
 | Privacidad | El texto original nunca sale de la UE | Solo viajará un prompt saneado |
@@ -256,19 +255,16 @@ Después del despliegue:
 
 ## 9. Pendiente
 
-**Decisión**
-- [ ] Región de despliegue en `alarmaiot` (7.2).
-
 **Despliegue**
-- [ ] Desplegar, probar la API real y evaluar el clasificador con el guardrail activo.
+- [ ] Desplegar en `nightmare-prod` (`eu-west-3`), probar la web y la API real y evaluar el clasificador con el guardrail activo.
+- [ ] Después, `cdk destroy --all --profile alarmaiot`.
 
 **Revisiones menores**
 - [ ] Comprobar que la CI pasa en GitHub Actions tras la simplificación.
 - [ ] Revisar las 16 vulnerabilidades moderadas que avisa `npm install` en `frontend/`.
-- [ ] Borrar el perfil `nightmare-jllarreag` de `~/.aws/config` si no se usa.
-- [ ] Antes de la tarea 5: confirmar acceso a Stable Image Core en `us-west-2`.
+- [ ] Antes de la tarea 5: la cuota de Stable Image Core en `us-west-2` está a 0 en `nightmare-prod` (pedir aumento o elegir otra región de imágenes).
 
-**Tareas del spec sin empezar**: 5 imágenes, 6 voz, 7 galería, 8 resto de infraestructura, 9 frontend y 10 pulido.
+**Tareas del spec sin empezar**: 5 imágenes, 6 voz, 7 galería, 8 WAF y 10 pulido. El frontend (9) tiene la primera versión.
 
 ## 10. Glosario
 

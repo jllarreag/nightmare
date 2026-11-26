@@ -18,7 +18,7 @@ Nightmare Resolver is a self-help companion, **not** a medical treatment or a su
 | Images | Stability AI on Bedrock (`us-west-2`, only sanitized visual prompts leave the EU) |
 | Voice | Amazon Polly |
 | Data | DynamoDB, S3, CloudFront |
-| Infra | AWS CDK (Python), base region `eu-south-2` |
+| Infra | AWS CDK (Python), base region `eu-west-3` |
 
 ## Repository layout
 

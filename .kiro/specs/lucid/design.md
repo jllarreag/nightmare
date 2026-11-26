@@ -8,7 +8,7 @@ Principio: lo más simple que funcione. Una Lambda, funciones sueltas, sin pydan
 flowchart LR
   U[Angular app] -->|HTTPS| APIGW[HTTP API + throttling]
   APIGW --> L[Lambda única: handler.py]
-  L -->|eu.amazon.nova-2-lite-v1:0| BR[Bedrock eu-south-2]
+  L -->|eu.amazon.nova-2-lite-v1:0| BR[Bedrock eu-west-3]
   L --> GR[Guardrail]
   L --> DDB[(DynamoDB sessions)]
   L -.->|futuro: prompt saneado| IMG[Bedrock us-west-2 Stability]
@@ -17,7 +17,7 @@ flowchart LR
   U -.-> CF
 ```
 
-Base region: `eu-south-2`. Solo la generación de imágenes (futura) llama a `us-west-2`.
+Base region: `eu-west-3` (París). En `eu-south-2` la cuenta nueva tenía las cuotas de Bedrock a 0. Solo la generación de imágenes (futura) llama a `us-west-2`.
 
 Rutas (una sola Lambda enruta por `routeKey`):
 

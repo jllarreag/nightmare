@@ -10,7 +10,7 @@ from botocore.config import Config
 from nightmare.models import ApiError
 
 # Clientes a nivel de módulo: Lambda los reutiliza entre invocaciones.
-REGION = os.environ.get("BASE_REGION", "eu-south-2")
+REGION = os.environ.get("BASE_REGION", "eu-west-3")
 MODEL_ID = os.environ.get("TEXT_MODEL_ID", "eu.amazon.nova-2-lite-v1:0")
 # API Gateway corta a los 30 s: Bedrock debe responder antes.
 client = boto3.client(

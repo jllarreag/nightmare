@@ -1,0 +1,58 @@
+<article class="card step" [attr.data-technique]="step().technique">
+  <ol class="progress" [attr.aria-label]="i18n.t('progress')">
+    @for (n of dots; track n) {
+      <li
+        [class.done]="n < step().step"
+        [class.current]="n === step().step"
+        [attr.aria-current]="n === step().step ? 'step' : null"
+      >
+        <span class="sr-only">{{ i18n.t('step') }} {{ n }}</span>
+      </li>
+    }
+  </ol>
+
+  <p class="eyebrow">{{ i18n.t('step') }} {{ step().step }} {{ i18n.t('of') }} {{ total }}</p>
+  <h1 #heading tabindex="-1">{{ step().title }}</h1>
+
+  @if (step().has_image) {
+    <div class="illustration">
+      <span>{{ i18n.t('imagePending') }}</span>
+    </div>
+  }
+
+  <p class="narration">{{ step().narration }}</p>
+
+  @if (step().learning) {
+    <section class="takeaway">
+      <h2>{{ i18n.t('learning') }}</h2>
+      <p>{{ step().learning }}</p>
+    </section>
+  }
+  @if (step().coping_tip) {
+    <section class="takeaway tip">
+      <h2>{{ i18n.t('copingTip') }}</h2>
+      <p>{{ step().coping_tip }}</p>
+    </section>
+  }
+
+  @if (step().choices.length && !finished()) {
+    <h2 class="choose">{{ i18n.t('choose') }}</h2>
+    <div class="choices">
+      @for (choice of step().choices; track choice.id) {
+        <button
+          type="button"
+          class="choice"
+          [disabled]="store.loading()"
+          (click)="store.choose(choice.id)"
+        >
+          {{ choice.label }}
+        </button>
+      }
+    </div>
+  } @else {
+    <p class="finished">{{ i18n.t('finished') }}</p>
+    <button type="button" class="btn primary" (click)="store.reset()">
+      {{ i18n.t('restart') }}
+    </button>
+  }
+</article>

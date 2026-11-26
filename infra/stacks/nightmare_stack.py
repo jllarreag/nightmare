@@ -21,12 +21,19 @@ BACKEND_SRC = Path(__file__).resolve().parents[2] / "backend" / "src"
 NOVA_PROFILE = "eu.amazon.nova-2-lite-v1:0"
 NOVA_MODEL = "amazon.nova-2-lite-v1:0"
 
-# Orígenes que pueden llamar a la API desde el navegador (cdk deploy -c allowedOrigins=...).
+# Orígenes que pueden llamar a la API desde el navegador. app.py pasa el dominio de CloudFront;
+# `cdk deploy -c allowedOrigins=...` tiene prioridad.
 DEFAULT_ALLOWED_ORIGINS = ["http://localhost:4200"]
 
 
 class NightmareStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        allowed_origins: list[str] | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         guardrail = ModerationGuardrail(self, "Moderation")
@@ -85,6 +92,7 @@ class NightmareStack(Stack):
             create_default_stage=False,
             cors_preflight=apigw.CorsPreflightOptions(
                 allow_origins=self.node.try_get_context("allowedOrigins")
+                or allowed_origins
                 or DEFAULT_ALLOWED_ORIGINS,
                 allow_methods=[apigw.CorsHttpMethod.POST],
                 allow_headers=["content-type"],

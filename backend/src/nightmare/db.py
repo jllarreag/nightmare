@@ -9,7 +9,7 @@ from nightmare.models import Session
 
 TTL_SECONDS = 24 * 60 * 60
 
-table = boto3.resource("dynamodb", region_name=os.environ.get("BASE_REGION", "eu-south-2")).Table(
+table = boto3.resource("dynamodb", region_name=os.environ.get("BASE_REGION", "eu-west-3")).Table(
     os.environ.get("SESSIONS_TABLE", "sessions")
 )
 

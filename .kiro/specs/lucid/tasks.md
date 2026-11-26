@@ -24,7 +24,7 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
   - [x] 4.3 Persistencia con TTL de 24 h (`db.py`)
   - [x] 4.4 CDK: tabla, Lambda única (ARM64, sin Docker), HTTP API con throttling y CORS, IAM mínimo
   - [x] 4.5 Tag de coste `application=nightmare` en toda la app CDK
-  - [ ] 4.6 Desplegar en la cuenta `alarmaiot` y probar la API de extremo a extremo (cierra 2.4 y 3.2). Bloqueado: `eu-south-2` está desactivada en esa cuenta (ver docs/documento-tecnico.md, sección 7)
+  - [ ] 4.6 Desplegar en la cuenta `nightmare-prod` (`eu-west-3`) y probar la API de extremo a extremo (cierra 2.4 y 3.2). Probado antes en `alarmaiot`/`eu-south-2`: los pasos 1 y 2 funcionan
   - _Requirements: 1.2, 1.3, 3.1-3.5, 7.2, 7.3_
 - [ ] 5. Images
   - [ ] 5.1 Función que pide a Nova un prompt visual saneado (sin nombres ni lugares) y lo modera

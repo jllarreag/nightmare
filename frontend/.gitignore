@@ -42,3 +42,6 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Local runtime config for ng serve (the deploy script writes its own)
+/public/config.json
