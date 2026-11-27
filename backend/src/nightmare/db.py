@@ -48,6 +48,22 @@ def delete_story(story_id: str) -> None:
     table.delete_item(Key={"pk": f"STORY#{story_id}"})
 
 
+# --- Imagenes: item IMAGE#<session>#<paso> con el estado y la clave S3 (nunca la URL) --------
+def put_image(session_id: str, step: int, status: str, key: str | None = None) -> None:
+    table.put_item(
+        Item={
+            "pk": f"IMAGE#{session_id}#{step}",
+            "status": status,
+            "key": key,
+            "ttl": int(time.time()) + TTL_SECONDS,
+        }
+    )
+
+
+def get_image(session_id: str, step: int) -> dict | None:
+    return table.get_item(Key={"pk": f"IMAGE#{session_id}#{step}"}).get("Item")
+
+
 def query_stories(
     language: str, limit: int, start_key: dict | None, now: int
 ) -> tuple[list[dict], dict | None]:

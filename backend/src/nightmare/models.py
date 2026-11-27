@@ -113,6 +113,8 @@ class Session:
     chosen: list[str] = field(default_factory=list)
     published: bool = False  # ya se publicó en la galería (solo una vez por sesión)
 
+    character: str = ""  # descripcion generica del personaje, comun a las imagenes
+
     @property
     def step_index(self) -> int:
         return len(self.history)

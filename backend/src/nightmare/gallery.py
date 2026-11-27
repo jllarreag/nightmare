@@ -14,8 +14,8 @@ import secrets
 import time
 import uuid
 
-from nightmare import ai, db, prompts, safety
-from nightmare.models import MAX_NARRATION_WORDS, TOTAL_STEPS, ApiError, Step
+from nightmare import ai, db, images, prompts, safety
+from nightmare.models import IMAGE_STEPS, MAX_NARRATION_WORDS, TOTAL_STEPS, ApiError, Step
 
 logger = logging.getLogger()
 
@@ -115,6 +115,10 @@ def publish(session_id, consent) -> dict:
         raise ApiError(422, "not_publishable")
     now = int(time.time())
     story_id, token = uuid.uuid4().hex, secrets.token_urlsafe(32)
+    # Solo se copian las imagenes listas; el resto queda con image = None (fondo neutro).
+    copied = images.copy_to_gallery(session.id, story_id, list(IMAGE_STEPS))
+    for s in steps:
+        s["image"] = copied.get(s["step"])
     expires_at = now + TTL_DAYS * 86400 if TTL_DAYS > 0 else None
     item = {
         "id": story_id,
@@ -134,6 +138,11 @@ def publish(session_id, consent) -> dict:
     return {"status": "ok", "story_id": story_id, "delete_token": token, "expires_at": expires_at}
 
 
+def with_image_urls(steps: list[dict]) -> list[dict]:
+    """Cambia las claves S3 guardadas por URLs firmadas de corta duracion."""
+    return [{**s, "image": images.url(s.get("image"))} for s in steps]
+
+
 def list_stories(language, limit, cursor) -> dict:
     if language not in ("es", "en"):
         raise ApiError(400, "language")
@@ -148,7 +157,7 @@ def list_stories(language, limit, cursor) -> dict:
             "id": i["id"],
             "language": i["language"],
             "created_at": int(i["created_at"]),
-            "steps": json.loads(i["story"]),
+            "steps": with_image_urls(json.loads(i["story"])),
         }
         for i in items
     ]
@@ -163,5 +172,10 @@ def delete(story_id, token) -> dict:
     if not hmac.compare_digest(hash_token(token), item["token_hash"]):
         raise ApiError(404, "not_found")
     db.delete_story(story_id)
+    try:
+        keys = [s.get("image") for s in json.loads(item["story"])]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        keys = []
+    images.delete_keys(keys)
     logger.info("story deleted: %s", story_id)
     return {"status": "deleted"}

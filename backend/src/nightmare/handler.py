@@ -2,6 +2,7 @@
 
     POST /sessions                      {"nightmare": str, "language": "es" | "en"}
     POST /sessions/{session_id}/steps   {"choice_id": str}
+    GET /sessions/{session_id}/images   estado de las imagenes (pending | ready | failed)
     POST /sessions/{session_id}/publish {"consent": true}
     GET /gallery?language=&limit=&cursor=
     DELETE /gallery/{story_id}          header x-delete-token
@@ -15,7 +16,7 @@ import logging
 
 from botocore.exceptions import ClientError
 
-from nightmare import gallery, story
+from nightmare import gallery, images, story
 from nightmare.models import ApiError
 
 logger = logging.getLogger()
@@ -63,6 +64,9 @@ def handler(event, context):
         elif route == "POST /sessions/{session_id}/steps":
             session_id = (event.get("pathParameters") or {}).get("session_id")
             result = story.next_step(session_id, body.get("choice_id"))
+        elif route == "GET /sessions/{session_id}/images":
+            session_id = (event.get("pathParameters") or {}).get("session_id")
+            result = images.status(session_id)
         elif route == "POST /sessions/{session_id}/publish":
             session_id = (event.get("pathParameters") or {}).get("session_id")
             result = gallery.publish(session_id, body.get("consent"))
