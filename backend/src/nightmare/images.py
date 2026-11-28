@@ -154,8 +154,14 @@ def generate(session_id: str, step: int) -> str:
                 CacheControl="private",
             )
             status = "ready"
-    except Exception as error:  # noqa: BLE001 - falla en cerrado, sin registrar detalles
-        logger.warning("image failed: %s", type(error).__name__)
+    except Exception as error:  # noqa: BLE001 - falla en cerrado, sin registrar el prompt
+        # Solo el mensaje de AWS (sin texto del usuario): explica acuerdos, cuotas o permisos.
+        message = (
+            error.response.get("Error", {}).get("Message", "")
+            if isinstance(error, ClientError)
+            else ""
+        )
+        logger.warning("image failed: %s | %s", type(error).__name__, message)
     try:
         db.put_image(session_id, step, status, key if status == "ready" else None)
     except Exception as error:  # noqa: BLE001
