@@ -602,6 +602,43 @@ textarea::placeholder {
   border-radius: 0.75rem;
 }
 
+.illustration-img,
+.gallery-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  margin: 1rem 0 1.5rem;
+  border-radius: 0.75rem;
+  background: rgba(6, 5, 18, 0.6);
+  animation: image-fade 0.8s ease-out;
+}
+
+.gallery-cover {
+  margin: 0.75rem 0;
+}
+
+.gallery-image {
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+.illustration.pending {
+  animation: image-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes image-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes image-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .illustration.neutral {
   min-height: 6rem;
   aspect-ratio: 16 / 6;

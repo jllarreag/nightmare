@@ -10,6 +10,14 @@
         }}</span>
         <time [attr.datetime]="iso(story.created_at)">{{ date(story.created_at) }}</time>
       </header>
+      @if (story.steps[0].image) {
+        <img
+          class="gallery-cover"
+          [src]="story.steps[0].image"
+          [alt]="i18n.t('galleryImageAlt')"
+          loading="lazy"
+        />
+      }
       <h2>{{ story.steps[0].title }}</h2>
       <p class="excerpt">{{ story.steps[0].narration }}</p>
       <details class="story-details">
@@ -17,9 +25,9 @@
         @for (step of story.steps; track step.step) {
           <section class="gallery-step">
             <h3>{{ step.title }}</h3>
-            @if (step.image) {
-              <img class="gallery-image" [src]="step.image" [alt]="i18n.t('galleryImageAlt')" />
-            } @else if (step.has_image) {
+            @if (step.image && step.step !== story.steps[0].step) {
+              <img class="gallery-image" [src]="step.image" [alt]="i18n.t('galleryImageAlt')" loading="lazy" />
+            } @else if (step.has_image && !step.image) {
               <div class="illustration neutral" aria-hidden="true"></div>
             }
             <p class="narration">{{ step.narration }}</p>

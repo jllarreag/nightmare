@@ -35,7 +35,11 @@ describe('App', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    TestBed.inject(StoryStore).reset();
+    vi.useRealTimers();
+    http.verify();
+  });
 
   it('shows the nightmare form and the disclaimer', async () => {
     const fixture = TestBed.createComponent(App);
@@ -111,5 +115,78 @@ describe('App', () => {
     await again;
     expect(store.error()).toBeNull();
     expect(store.phase()).toBe('story');
+  });
+
+  describe('images', () => {
+    async function startWithImage() {
+      vi.useFakeTimers();
+      const fixture = TestBed.createComponent(App);
+      const store = TestBed.inject(StoryStore);
+      const done = store.start('Sueño que me persigue una sombra por un pasillo');
+      http.expectOne(`${API}/sessions`).flush({ status: 'ok', session_id: 's1', step: step1 });
+      await done;
+      return { fixture, store };
+    }
+
+    async function poll(images: object) {
+      await vi.advanceTimersByTimeAsync(4000);
+      http.expectOne(`${API}/sessions/s1/images`).flush({ images });
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    it('polls the images route after 4 s and shows the image with alt text when ready', async () => {
+      const { fixture } = await startWithImage();
+      await vi.advanceTimersByTimeAsync(3999);
+      http.expectNone(`${API}/sessions/s1/images`);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.querySelector('.illustration.pending')).toBeTruthy();
+      await poll({ '1': { status: 'ready', url: 'https://img.test/1.jpg' } });
+      fixture.detectChanges();
+      const img = el.querySelector('img.illustration-img') as HTMLImageElement;
+      expect(img.getAttribute('src')).toBe('https://img.test/1.jpg');
+      expect(img.alt).not.toBe('');
+    });
+
+    it('shows a neutral block when the image failed and never raises an error', async () => {
+      const { fixture, store } = await startWithImage();
+      await poll({ '1': { status: 'failed', url: null } });
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.querySelector('.illustration.neutral')?.textContent).toContain('no hay ilustración');
+      expect(el.querySelectorAll('button.choice').length).toBe(2);
+      expect(store.error()).toBeNull();
+    });
+
+    it('keeps polling silently when the request fails', async () => {
+      const { store } = await startWithImage();
+      await vi.advanceTimersByTimeAsync(4000);
+      http
+        .expectOne(`${API}/sessions/s1/images`)
+        .flush({ error: 'x' }, { status: 500, statusText: 'Server Error' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.error()).toBeNull();
+      await vi.advanceTimersByTimeAsync(4000);
+      http.expectOne(`${API}/sessions/s1/images`).flush({ images: {} });
+    });
+
+    it('reuses the earlier ready image as decoration on a step without image', async () => {
+      const { fixture, store } = await startWithImage();
+      await poll({ '1': { status: 'ready', url: 'https://img.test/1.jpg' } });
+      const chosen = store.choose('a');
+      http.expectOne(`${API}/sessions/s1/steps`).flush({
+        status: 'ok',
+        session_id: 's1',
+        step: { ...step1, step: 2, has_image: false },
+        finished: false,
+      });
+      await chosen;
+      fixture.detectChanges();
+      const img = (fixture.nativeElement as HTMLElement).querySelector(
+        'img.illustration-img',
+      ) as HTMLImageElement;
+      expect(img.getAttribute('src')).toBe('https://img.test/1.jpg');
+      expect(img.getAttribute('alt')).toBe('');
+    });
   });
 });

@@ -67,7 +67,7 @@ export interface PublishResponse {
   expires_at: number | null;
 }
 
-/** A published step: anonymized text only. `image` is filled once images exist (task 5). */
+/** A published step: anonymized text only. `image` is a pre-signed URL, or null when there is none. */
 export interface GalleryStep {
   step: number;
   title: string;
@@ -78,6 +78,15 @@ export interface GalleryStep {
   image: string | null;
 }
 
+/** GET /sessions/{id}/images. Keys are step numbers (as strings) of steps that have an image. */
+export type ImageStatus = 'pending' | 'ready' | 'failed';
+export interface ImageState {
+  status: ImageStatus;
+  url: string | null;
+}
+export interface ImagesResponse {
+  images: Record<string, ImageState>;
+}
 export interface GalleryStory {
   id: string;
   language: Lang;

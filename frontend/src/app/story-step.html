@@ -14,10 +14,24 @@
   <p class="eyebrow">{{ i18n.t('step') }} {{ step().step }} {{ i18n.t('of') }} {{ total }}</p>
   <h1 #heading tabindex="-1">{{ step().title }}</h1>
 
-  @if (step().has_image) {
-    <div class="illustration">
-      <span>{{ i18n.t('imagePending') }}</span>
-    </div>
+  @if (image(); as img) {
+    @if (img.state.status === 'ready' && img.state.url) {
+      <img
+        class="illustration-img"
+        [src]="img.state.url"
+        [alt]="img.own ? i18n.t('imageAlt') : ''"
+      />
+    } @else if (img.state.status === 'pending') {
+      <div class="illustration pending" role="status">
+        <span>{{ i18n.t('imagePending') }}</span>
+      </div>
+    } @else {
+      <div class="illustration neutral">
+        <span>{{ i18n.t('imageFailed') }}</span>
+      </div>
+    }
+  } @else {
+    <div class="illustration neutral" aria-hidden="true"></div>
   }
 
   <p class="narration">{{ step().narration }}</p>

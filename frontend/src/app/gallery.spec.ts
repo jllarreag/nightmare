@@ -1,4 +1,4 @@
-﻿import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { App } from './app';
@@ -19,7 +19,7 @@ const closing = {
   has_image: false,
 };
 
-function galleryStory(id: string, title: string) {
+function galleryStory(id: string, title: string, image: string | null = null) {
   return {
     id,
     language: 'es',
@@ -32,7 +32,7 @@ function galleryStory(id: string, title: string) {
         learning: null,
         coping_tip: null,
         has_image: true,
-        image: null,
+        image,
       },
     ],
   };
@@ -56,6 +56,7 @@ describe('Gallery', () => {
   }
 
   afterEach(() => {
+    TestBed.inject(StoryStore).reset();
     http.verify();
     location.hash = '';
   });
@@ -140,6 +141,26 @@ describe('Gallery', () => {
     fixture.detectChanges();
     expect(el.querySelectorAll('article.gallery-card').length).toBe(2);
     expect(el.querySelector('button.load-more')).toBeNull();
+  });
+
+  it('shows the step-1 image as card cover and still works without image', async () => {
+    const fixture = await setup('#/gallery');
+    http.expectOne((r) => r.url === `${API}/gallery`).flush({
+      stories: [
+        galleryStory('a', 'Con imagen', 'https://img.test/a.jpg'),
+        galleryStory('b', 'Sin imagen'),
+      ],
+      next_cursor: null,
+    });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const cards = (fixture.nativeElement as HTMLElement).querySelectorAll('article.gallery-card');
+    const cover = cards[0].querySelectorAll('img');
+    expect(cover.length).toBe(1);
+    expect(cover[0].getAttribute('src')).toBe('https://img.test/a.jpg');
+    expect(cover[0].getAttribute('alt')).toBe('Ilustración de la historia');
+    expect(cover[0].getAttribute('loading')).toBe('lazy');
+    expect(cards[1].querySelector('img')).toBeNull();
   });
 
   it('shows the empty state when there are no stories', async () => {

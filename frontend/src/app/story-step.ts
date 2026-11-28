@@ -1,4 +1,12 @@
-import { afterRenderEffect, Component, ElementRef, inject, input, viewChild } from '@angular/core';
+import {
+  afterRenderEffect,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  viewChild,
+} from '@angular/core';
 import { Step, TOTAL_STEPS } from './api';
 import { I18n } from './i18n';
 import { SharePanel } from './share-panel';
@@ -17,6 +25,9 @@ export class StoryStep {
   protected readonly store = inject(StoryStore);
   protected readonly total = TOTAL_STEPS;
   protected readonly dots = Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1);
+
+  /** Own image (with alt text) or an earlier ready image reused as decoration. */
+  protected readonly image = computed(() => this.store.imageFor(this.step()));
 
   private readonly heading = viewChild.required<ElementRef<HTMLElement>>('heading');
 
