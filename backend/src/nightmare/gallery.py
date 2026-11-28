@@ -80,7 +80,7 @@ def parse_anonymized(original: list[Step]):
                     "learning": learning,
                     "coping_tip": coping_tip,
                     "has_image": source.image_prompt is not None,
-                    "image": None,  # la tarea 5 rellenará la ruta de la imagen
+                    "image": None,  # publish() la rellena con la clave copiada
                 }
             )
         return steps
