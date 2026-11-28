@@ -81,7 +81,9 @@ def handler(event, context):
         return respond(error.status, {"error": error.code})
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code", "")
-        logger.warning("aws error: %s", code)
+        # El mensaje de AWS no lleva texto del usuario y explica bloqueos de cuenta o de cuota.
+        message = error.response.get("Error", {}).get("Message", "")
+        logger.warning("aws error: %s | %s", code, message)
         return (
             respond(429, {"error": "busy"})
             if code in THROTTLING
