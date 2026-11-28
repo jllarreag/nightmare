@@ -16,7 +16,7 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
   - [x] 3.1 `safety.classify()` (`ok | not_serious | forbidden_content | risk`) y `output_is_safe()`
   - [ ] 3.2 Desplegar el guardrail y pasar un corpus de entradas (ok, not_serious, forbidden, risk; ES/EN) contra Nova real. Comprobar que no se rechazan pesadillas oscuras genuinas
   - [x] 3.3 Mensajes de parada localizados con recursos de ayuda para `risk`
-  - [ ] 3.4 Moderar el prompt de imagen antes de enviarlo a `us-west-2` (con la tarea 5)
+  - [x] 3.4 Moderar el prompt de imagen antes de enviarlo a `us-west-2` (con la tarea 5)
   - _Requirements: 2.1-2.5, 4.1, 4.2_
 - [ ] 4. Story engine
   - [x] 4.1 `story.start()`: validar, clasificar, paso 1, guardar sesión sin texto original
@@ -26,10 +26,10 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
   - [x] 4.5 Tag de coste `application=nightmare` en toda la app CDK
   - [ ] 4.6 Desplegar en la cuenta `nightmare-prod` (`eu-west-3`) y probar la API de extremo a extremo (cierra 2.4 y 3.2). Probado antes en `alarmaiot`/`eu-south-2`: los pasos 1 y 2 funcionan
   - _Requirements: 1.2, 1.3, 3.1-3.5, 7.2, 7.3_
-- [ ] 5. Images
-  - [ ] 5.1 Función que pide a Nova un prompt visual saneado (sin nombres ni lugares) y lo modera
-  - [ ] 5.2 Cliente de Stability en `us-west-2`, almacenamiento en S3, sufijo de estilo fijo, personaje recurrente
-  - [ ] 5.3 Solo 2 imágenes (paso 1 y final reescrito), la final en segundo plano, con placeholder si falla
+- [x] 5. Images
+  - [x] 5.1 Función que pide a Nova un prompt visual saneado (sin nombres ni lugares) y lo modera
+  - [x] 5.2 Cliente de Stability en `us-west-2`, almacenamiento en S3, sufijo de estilo fijo, personaje recurrente
+  - [x] 5.3 Solo 2 imágenes (paso 1 y final reescrito), la final en segundo plano, con placeholder si falla
   - _Requirements: 4.1-4.6_
 - [ ] 6. Voice
   - [ ] 6.1 Ruta `speak` con Polly (es-ES / en) y caché en S3
@@ -45,7 +45,7 @@ Cada tarea añade backend e infra a la vez. Mantener el código simple (ver desi
   - _Requirements: 7.1, 8.2_
 - [ ] 9. Frontend
   - [ ] 9.1 Home con disclaimer, selector de idioma, entrada y validación
-  - [ ] 9.2 Vista de la historia: paso, opciones, imagen, estados de carga
+  - [x] 9.2 Vista de la historia: paso, opciones, imagen, estados de carga
   - [ ] 9.3 Reproductor de audio con subtítulos y controles
   - [x] 9.4 Galería y flujo de compartir/borrar
   - [ ] 9.5 Tema oscuro atmosférico, reduced-motion, accesibilidad
