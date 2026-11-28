@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""CDK entry point for Nightmare Resolver. Base region: eu-west-3 unless CDK_DEFAULT_REGION is set.
+"""CDK entry point for Nightmare Resolver. Base region: eu-west-3 unless NIGHTMARE_REGION is set.
+
+The region does not come from the AWS profile (CDK_DEFAULT_REGION): a profile with another default
+region would create a second copy of the stacks there, and the global CloudFront names would clash.
 
     NightmareResolverWeb  S3 + CloudFront for the Angular app
     NightmareResolver     API (its CORS allows the CloudFront domain and local dev)
@@ -18,7 +21,7 @@ app = cdk.App()
 
 env = cdk.Environment(
     account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
-    region=os.environ.get("CDK_DEFAULT_REGION", "eu-west-3"),
+    region=os.environ.get("NIGHTMARE_REGION", "eu-west-3"),
 )
 
 web = FrontendStack(app, "NightmareResolverWeb", env=env)

@@ -278,7 +278,7 @@ Resultado actual: 71 tests de backend, 14 de infra y 16 de frontend pasan, `ruff
 ```powershell
 cd backend; .\.venv\Scripts\python.exe -m pytest -q
 cd ..\infra; .\.venv\Scripts\python.exe -m pytest -q
-$env:CDK_DEFAULT_REGION="eu-west-3"; npx aws-cdk@2.1148.1 synth
+npx aws-cdk@2.1148.1 synth
 cd ..\frontend; npx ng test --watch=false
 ```
 
@@ -320,6 +320,8 @@ npx aws-cdk@2.1148.1 deploy --all --profile nightmare-prod
 cd ..
 scripts\deploy-frontend.bat nightmare-prod
 ```
+
+La región sale de `NIGHTMARE_REGION` (por defecto `eu-west-3`), no de la región del perfil. Así, un perfil con otra región por defecto (como `alarmaiot`, en `eu-south-2`) no crea una segunda copia de los stacks, que chocaría con los nombres globales de CloudFront.
 
 `deploy --all` crea `NightmareResolverWeb` (S3 + CloudFront) y `NightmareResolver` (API). El script del frontend compila la app, escribe `config.json` con la URL de la API, sube los ficheros y muestra la URL de CloudFront (añade `?debug` para ver las respuestas de la API). Para borrar todo: `npx aws-cdk@2.1148.1 destroy --all --profile nightmare-prod`.
 
